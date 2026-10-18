@@ -1,12 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { c, label, STATUS } from '../theme.js';
 import { Avatar, Barra, Select } from '../components/ui.jsx';
-import { cargaDev, capacidadeBucket, capacidadeMensal, corOcupacao, ehFimDeSemana } from '../lib/capacidade.js';
+import { cargaDev, capacidadeBucket, capacidadeJanela, corOcupacao, ehFimDeSemana } from '../lib/capacidade.js';
 const ESCALAS = ['Dia', 'Semana', 'Mês'];
 
-export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes, onPatch, onAbrirFila }) {
+export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes }) {
   const n = buckets.length;
-  const [selId, setSelId] = useState(alocacoes[8] ? alocacoes[8].id : null);
+  const [selId, setSelId] = useState(null);
   const [escala, setEscala] = useState('Dia');
   const [filtroSquad, setFiltroSquad] = useState('');
   const [buscaRecurso, setBuscaRecurso] = useState('');
@@ -27,9 +27,10 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes, onPa
 
   const porDev = useMemo(() => devsVisiveis.map((dev) => {
     const carga = cargaDev(alocacoes, dev.id, buckets);
-    const itens = alocacoes.filter((a) => a.devId === dev.id);
+    // Só lista as barras que aparecem (ao menos um dia) dentro do período.
+    const itens = alocacoes.filter((a) => a.devId === dev.id && a.bucketInicio < n && a.bucketInicio + a.duracaoBuckets > 0);
     const horas = carga.slice(bucketAtual, fimJanelaMes).reduce((s, h) => s + h, 0);
-    const capPeriodo = capacidadeMensal(dev);
+    const capPeriodo = capacidadeJanela(dev, bucketAtual, fimJanelaMes);
     return { dev, carga, itens, horas, capPeriodo, pct: horas / capPeriodo };
   }), [devsVisiveis, alocacoes, buckets, n, bucketAtual, fimJanelaMes]);
 
@@ -42,9 +43,9 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes, onPa
     const risco = alocacoesVisiveis.filter((a) => a.status === 'risco').length;
     return [
       { v: Math.round(horas) + ' h', l: 'Horas estimadas nos próximos 30 dias', cor: c.t1 },
-      { v: cap + ' h', l: 'Capacidade mensal selecionada (' + devsVisiveis.length + ' devs)', cor: c.t1 },
-      { v: (cap ? Math.round((horas / cap) * 100) : 0) + ' %', l: 'Ocupação vs. capacidade mensal', cor: corOcupacao(cap ? horas / cap : 0) },
-      { v: String(apertados), l: 'Devs acima de 85% em algum dia', cor: apertados ? c.amber : c.green },
+      { v: cap + ' h', l: 'Capacidade nos próximos 30 dias (' + devsVisiveis.length + (devsVisiveis.length === 1 ? ' pessoa)' : ' pessoas)'), cor: c.t1 },
+      { v: (cap ? Math.round((horas / cap) * 100) : 0) + ' %', l: 'Ocupação vs. capacidade (30 dias)', cor: corOcupacao(cap ? horas / cap : 0) },
+      { v: String(apertados), l: 'Pessoas acima de 85% em algum dia', cor: apertados ? c.amber : c.green },
       { v: String(risco), l: 'Demandas em risco', cor: risco ? c.red : c.green },
     ];
   }, [alocacoes, porDev, devsVisiveis]);
@@ -59,18 +60,6 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes, onPa
 
   return (
     <div style={{ background: c.s2, paddingBottom: 28, minHeight: '100%' }}>
-      <header style={{ background: c.ink, padding: '0 24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24, padding: '16px 0 14px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 30, height: 30, borderRadius: 7, background: c.teal, color: '#0B2223', fontSize: 14, fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>S</div>
-            <div>
-              <div style={{ fontSize: 17, fontWeight: 'bold', color: c.white, letterSpacing: -0.2 }}>Alocação de horas · Demandas dos devs</div>
-            </div>
-          </div>
-          <button type="button" onClick={onAbrirFila} style={{ font: 'inherit', fontSize: 12, fontWeight: 'bold', color: '#0B2223', background: c.teal, border: 'none', borderRadius: 7, padding: '9px 14px', cursor: 'pointer' }}>Tickets a planejar</button>
-        </div>
-      </header>
-
       <div style={{ padding: '18px 24px 0', display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 12 }}>
         {kpis.map((k) => (
           <div key={k.l} style={{ background: c.white, border: '1px solid ' + c.b1, borderRadius: 10, padding: '14px 16px' }}>
@@ -132,7 +121,7 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes, onPa
 
           <div style={{ overflowX: 'auto', borderRadius: '0 0 12px 12px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '340px auto', background: c.s1, borderBottom: '1px solid ' + c.b2 }}>
-              <div style={{ ...label, padding: '10px 16px', borderRight: '1px solid ' + c.b2, position: 'sticky', left: 0, background: c.s1, zIndex: 2 }}>Dev / demanda</div>
+              <div style={{ ...label, padding: '10px 16px', borderRight: '1px solid ' + c.b2, position: 'sticky', left: 0, background: c.s1, zIndex: 2 }}>Pessoa / demanda</div>
               <div style={colGrid}>
                 {buckets.map((b, i) => (
                   <div key={b.id} style={{ position: 'relative', padding: '8px 0 7px', textAlign: 'center', borderLeft: '1px solid #EFF0F2', background: i === bucketAtual ? c.tealBg : fds[i] ? c.b2 : 'transparent' }}>
@@ -151,10 +140,10 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes, onPa
               <div key={dev.id}>
                 <div style={{ display: 'grid', gridTemplateColumns: '340px auto', borderBottom: '1px solid ' + c.b3, background: c.s1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', borderRight: '1px solid ' + c.b2, minHeight: 48, position: 'sticky', left: 0, background: c.s1, zIndex: 2 }}>
-                    <Avatar iniciais={dev.iniciais} />
+                    <Avatar iniciais={dev.iniciais} bg={dev.tipo === 'po' ? c.amberText : c.ink} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12.5, fontWeight: 'bold' }}>{dev.nome}</div>
-                      <div style={{ fontSize: 10.5, color: c.t5, marginTop: 2 }}>{dev.papel}</div>
+                      <div style={{ fontSize: 10.5, color: c.t5, marginTop: 2 }}>{dev.tipo === 'po' ? 'PO · ' : ''}{dev.papel}</div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontSize: 11, fontWeight: 'bold', color: corOcupacao(pct), marginBottom: 3 }}>{horas.toFixed(0)} / {capPeriodo} h</div>
@@ -169,6 +158,9 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes, onPa
                 {itens.map((aloc) => {
                   const st = STATUS[aloc.status];
                   const ativa = aloc.id === selId;
+                  const orcamento = aloc.tipoAlocacao === 'orcamento';
+                  // Barra cortada nas bordas do período (pode começar antes ou terminar depois).
+                  const ini = Math.max(0, aloc.bucketInicio);
                   const fim = Math.min(n, aloc.bucketInicio + aloc.duracaoBuckets);
                   const fundoLinha = ativa ? '#F7FCFC' : c.white;
                   return (
@@ -181,7 +173,7 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes, onPa
                         <div style={{ width: 3, height: 20, borderRadius: 2, background: st.color, flex: 'none' }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 12, fontWeight: ativa ? 'bold' : 'normal', color: c.t2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{aloc.titulo}</div>
-                          <div style={{ fontSize: 10.5, color: c.t5, marginTop: 2 }}>{aloc.ticketId} · {aloc.tipo}</div>
+                          <div style={{ fontSize: 10.5, color: c.t5, marginTop: 2 }}>{aloc.ticketId} · {orcamento ? 'Pré-orçamento' : aloc.tipo}</div>
                         </div>
                         <div style={{ fontSize: 11, fontWeight: 'bold', color: c.t3 }}>{aloc.horasEstimadas} h</div>
                       </div>
@@ -191,19 +183,19 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes, onPa
                             position: 'relative',
                             borderLeft: '1px solid ' + c.b3,
                             background: ativa
-                              ? (i >= aloc.bucketInicio && i < fim ? 'rgba(23,169,174,0.10)' : '#FBFEFE')
+                              ? (i >= ini && i < fim ? 'rgba(23,169,174,0.10)' : '#FBFEFE')
                               : fundoCol(i),
                           }}><DivisorTurno /></div>
                         ))}
                         <div style={{
                           position: 'absolute', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none',
-                          left: (aloc.bucketInicio / n) * 100 + '%', width: (aloc.duracaoBuckets / n) * 100 + '%', padding: '0 4px', boxSizing: 'border-box',
+                          left: (ini / n) * 100 + '%', width: ((fim - ini) / n) * 100 + '%', padding: '0 4px', boxSizing: 'border-box',
                         }}>
                           <div style={{
                             height: 24, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                             gap: 6, padding: '0 8px', boxSizing: 'border-box', overflow: 'hidden',
                             background: st.bg,
-                            border: (ativa ? 2 : 1) + 'px solid ' + st.border,
+                            border: (ativa ? 2 : 1) + 'px ' + (orcamento ? 'dashed ' : 'solid ') + st.border,
                             boxShadow: ativa ? '0 2px 8px rgba(23,169,174,0.35)' : 'none',
                           }}>
                             <span style={{ fontSize: 10.5, fontWeight: 'bold', color: st.fg, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{aloc.ticketId}</span>

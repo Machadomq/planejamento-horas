@@ -61,7 +61,7 @@ export default function PlanejarDemanda({ ticket, devs, buckets, alocacoes, onCa
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <span style={{ fontSize: 16.5, fontWeight: 'bold', letterSpacing: -0.2 }}>Planejar demanda no Gantt</span>
-            <span style={{ fontSize: 10.5, fontWeight: 'bold', color: c.tealText, background: c.tealBg, border: '1px solid ' + c.tealBorder, borderRadius: 20, padding: '3px 9px' }}>{ticket.id}</span>
+            <span style={{ fontSize: 10.5, fontWeight: 'bold', color: c.tealText, background: c.tealBg, border: '1px solid ' + c.tealBorder, borderRadius: 20, padding: '3px 9px' }}>{ticket.codigo}</span>
           </div>
           <div style={{ fontSize: 11.5, color: c.t4, marginTop: 5 }}>Defina responsável, janela e horas. A capacidade do dev é recalculada a cada alteração.</div>
         </div>

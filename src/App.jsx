@@ -1,120 +1,172 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import GanttHoras from './screens/GanttHoras.jsx';
 import TicketsAPlanejar from './screens/TicketsAPlanejar.jsx';
 import PlanejarDemanda from './screens/PlanejarDemanda.jsx';
 import PlanejarOrcamento from './screens/PlanejarOrcamento.jsx';
-import * as mock from './data/mock.js';
-import { restaurarExemplos } from './data/api.js';
+import { c } from './theme.js';
+import { carregarTudo } from './data/api.js';
+import { alocacaoParaGantt, atividadeParaFila, pessoaParaGantt } from './data/adaptadores.js';
+import { bucketsParaDatas, periodoAtual } from './lib/periodo.js';
+import { novoId } from './lib/ids.js';
 
-let seq = 1;
-
-// PROVISÓRIO (etapa c): testa a gravação dos exemplos no banco. Sai na etapa d.
-function BotaoCarregarExemplos() {
-  const [ocupado, setOcupado] = useState(false);
-  async function carregar() {
-    if (!window.confirm('Isso APAGA tudo que estiver no banco e grava os dados de exemplo. Continuar?')) return;
-    setOcupado(true);
-    try {
-      const n = await restaurarExemplos();
-      window.alert('Exemplos gravados: ' + n.pessoas + ' pessoas, ' + n.atividades + ' atividades, ' + n.alocacoes + ' alocações.');
-    } catch (e) {
-      window.alert(e.message);
-    } finally {
-      setOcupado(false);
-    }
-  }
-  return (
-    <button type="button" onClick={carregar} disabled={ocupado} style={{
-      position: 'fixed', right: 20, bottom: 20, zIndex: 30, font: 'inherit', fontSize: 12, fontWeight: 'bold',
-      color: '#fff', background: '#12161A', border: 'none', borderRadius: 8, padding: '10px 14px', cursor: 'pointer',
-      boxShadow: '0 6px 18px rgba(0,0,0,0.25)',
-    }}>{ocupado ? 'Gravando…' : 'Carregar exemplos no banco (provisório)'}</button>
-  );
-}
-let seqOrcamento = 1;
+const ABAS = [
+  { key: 'gantt', label: 'Gantt' },
+  { key: 'pessoas', label: 'Pessoas' },
+  { key: 'atividades', label: 'Atividades' },
+];
 
 export default function App() {
-  // Substituir por dados de /planejamento/gantt e /planejamento/tickets (aprovados + pré-orçamento).
-  const [alocacoes, setAlocacoes] = useState(mock.alocacoes);
-  const [tickets, setTickets] = useState(mock.tickets);
-  const [alocacoesOrcamento, setAlocacoesOrcamento] = useState([]);
+  const periodo = useMemo(() => periodoAtual(), []);
+  const [aba, setAba] = useState('gantt');
+  // Dados como vêm de api.js (datas reais). As telas recebem a versão adaptada abaixo.
+  const [dados, setDados] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState(null);
   const [fila, setFila] = useState(false);
   const [pendentes, setPendentes] = useState([]);
   const [orcamentosPendentes, setOrcamentosPendentes] = useState([]);
 
-  // PATCH /planejamento/alocacoes/:id — otimista, com rollback em erro.
-  const patch = (id, campos) =>
-    setAlocacoes((as) => as.map((a) => (a.id === id ? { ...a, ...campos, versao: a.versao + 1 } : a)));
+  async function carregar() {
+    setCarregando(true);
+    setErro(null);
+    try {
+      setDados(await carregarTudo());
+    } catch (e) {
+      setErro(e.message);
+    } finally {
+      setCarregando(false);
+    }
+  }
+  useEffect(() => { carregar(); }, []);
 
-  // POST /planejamento/alocacoes
-  function confirmar(payload) {
-    const ticket = tickets.find((t) => t.id === payload.ticketId);
-    const id = 'alc_novo_' + seq++;
-    setAlocacoes((as) => as.concat({
-      id, ticketId: ticket.id, titulo: ticket.titulo, tipo: payload.tipo, devId: payload.devId,
-      bucketInicio: payload.bucketInicio, duracaoBuckets: payload.duracaoBuckets,
+  const visao = useMemo(() => {
+    if (!dados) return null;
+    const atividadesPorId = Object.fromEntries(dados.atividades.map((a) => [a.id, a]));
+    // Devs primeiro, depois POs; dentro de cada grupo, por nome (já vem ordenado do banco).
+    const pessoas = dados.pessoas.slice().sort((a, b) => (a.tipo === b.tipo ? 0 : a.tipo === 'dev' ? -1 : 1))
+      .map((p) => pessoaParaGantt(p, periodo));
+    return {
+      pessoas,
+      devs: pessoas.filter((p) => p.tipo === 'dev'),
+      pos: pessoas.filter((p) => p.tipo === 'po'),
+      alocacoes: dados.alocacoes.map((a) => alocacaoParaGantt(a, atividadesPorId, periodo)),
+      tickets: dados.atividades.map((at) => atividadeParaFila(at, dados.alocacoes, periodo.hoje)),
+    };
+  }, [dados, periodo]);
+
+  // Ainda só na memória (some ao recarregar). Passa a gravar no banco na etapa g.
+  function adicionarAlocacao(payload, tipo, pessoaId) {
+    const nova = {
+      id: novoId(), atividadeId: payload.ticketId, pessoaId, tipo,
+      ...bucketsParaDatas(payload.bucketInicio, payload.duracaoBuckets, periodo.inicio),
       horasEstimadas: payload.horasEstimadas, horasApontadas: 0,
-      distribuicao: payload.distribuicao, pesos: payload.pesos, status: payload.status, versao: 1,
-    }));
-    setTickets((ts) => ts.map((t) => (t.id === ticket.id ? { ...t, alocacaoId: id } : t)));
+      distribuicao: payload.distribuicao, pesos: payload.pesos, status: payload.status || 'planejada', versao: 1,
+    };
+    setDados((d) => ({ ...d, alocacoes: d.alocacoes.concat(nova) }));
+  }
+
+  function confirmar(payload) {
+    adicionarAlocacao(payload, 'execucao', payload.devId);
     setPendentes((p) => p.slice(1));
   }
 
-  // POST /planejamento/orcamentos — agenda o PO para elaborar o pré-orçamento do ticket.
   function confirmarOrcamento(payload) {
-    const id = 'orc_' + seqOrcamento++;
-    setAlocacoesOrcamento((as) => as.concat({
-      id, devId: payload.poId, bucketInicio: payload.bucketInicio, duracaoBuckets: payload.duracaoBuckets,
-      horasEstimadas: payload.horasEstimadas, distribuicao: payload.distribuicao, pesos: payload.pesos, versao: 1,
-    }));
-    setTickets((ts) => ts.map((t) => (t.id === payload.ticketId ? { ...t, orcamentoPlanejadoId: id } : t)));
+    adicionarAlocacao(payload, 'orcamento', payload.poId);
     setOrcamentosPendentes((p) => p.slice(1));
   }
 
   return (
-    <>
-      <BotaoCarregarExemplos />
-      <GanttHoras
-        buckets={mock.buckets}
-        bucketAtual={mock.bucketAtual}
-        devs={mock.devs}
-        alocacoes={alocacoes}
-        onPatch={patch}
-        onAbrirFila={() => setFila(true)}
-      />
+    <div style={{ minHeight: '100vh', background: c.s2 }}>
+      <header style={{ background: c.ink, padding: '0 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24, padding: '14px 0 0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 30, height: 30, borderRadius: 7, background: c.teal, color: '#0B2223', fontSize: 14, fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>S</div>
+            <div style={{ fontSize: 17, fontWeight: 'bold', color: c.white, letterSpacing: -0.2 }}>Alocação de horas · Demandas dos devs</div>
+          </div>
+          {aba === 'gantt' && visao && (
+            <button type="button" onClick={() => setFila(true)} style={{ font: 'inherit', fontSize: 12, fontWeight: 'bold', color: '#0B2223', background: c.teal, border: 'none', borderRadius: 7, padding: '9px 14px', cursor: 'pointer' }}>Tickets a planejar</button>
+          )}
+        </div>
+        <nav style={{ display: 'flex', gap: 4, marginTop: 10 }}>
+          {ABAS.map((a) => {
+            const on = a.key === aba;
+            return (
+              <button key={a.key} type="button" onClick={() => setAba(a.key)} style={{
+                font: 'inherit', fontSize: 13, fontWeight: 'bold', cursor: 'pointer', background: 'none', border: 'none',
+                color: on ? c.white : c.t5, padding: '10px 14px 11px',
+                borderBottom: '3px solid ' + (on ? c.teal : 'transparent'),
+              }}>{a.label}</button>
+            );
+          })}
+        </nav>
+      </header>
 
-      {fila && !pendentes.length && !orcamentosPendentes.length && (
+      {carregando && !visao && <Aviso texto="Carregando dados do banco…" />}
+
+      {erro && !visao && (
+        <Aviso texto={erro} cor={c.redText}>
+          <button type="button" onClick={carregar} style={{ font: 'inherit', fontSize: 12, fontWeight: 'bold', color: '#0B2223', background: c.teal, border: 'none', borderRadius: 7, padding: '9px 14px', cursor: 'pointer', marginTop: 14 }}>Tentar de novo</button>
+        </Aviso>
+      )}
+
+      {visao && aba === 'gantt' && (
+        <GanttHoras
+          buckets={periodo.buckets}
+          bucketAtual={periodo.bucketAtual}
+          devs={visao.pessoas}
+          alocacoes={visao.alocacoes}
+        />
+      )}
+
+      {visao && aba === 'pessoas' && (
+        <Aviso texto={visao.pessoas.length + ' pessoas no banco. O cadastro de pessoas chega na etapa e.'} />
+      )}
+
+      {visao && aba === 'atividades' && (
+        <Aviso texto={visao.tickets.length + ' atividades no banco. O cadastro de atividades chega na etapa f.'} />
+      )}
+
+      {visao && fila && !pendentes.length && !orcamentosPendentes.length && (
         <TicketsAPlanejar
-          tickets={tickets}
+          tickets={visao.tickets}
           onFechar={() => setFila(false)}
           onPlanejar={(sel) => { setPendentes(sel.map((t) => t.id)); setFila(false); }}
           onPlanejarOrcamento={(sel) => { setOrcamentosPendentes(sel.map((t) => t.id)); setFila(false); }}
         />
       )}
 
-      {pendentes.length > 0 && (
+      {visao && pendentes.length > 0 && (
         <PlanejarDemanda
           key={pendentes[0]}
-          ticket={tickets.find((t) => t.id === pendentes[0])}
-          devs={mock.devs}
-          buckets={mock.buckets}
-          alocacoes={alocacoes}
+          ticket={visao.tickets.find((t) => t.id === pendentes[0])}
+          devs={visao.devs}
+          buckets={periodo.buckets}
+          alocacoes={visao.alocacoes}
           onCancelar={() => setPendentes((p) => p.slice(1))}
           onConfirmar={confirmar}
         />
       )}
 
-      {orcamentosPendentes.length > 0 && (
+      {visao && orcamentosPendentes.length > 0 && (
         <PlanejarOrcamento
           key={orcamentosPendentes[0]}
-          ticket={tickets.find((t) => t.id === orcamentosPendentes[0])}
-          pos={mock.pos}
-          buckets={mock.buckets}
-          alocacoesOrcamento={alocacoesOrcamento}
+          ticket={visao.tickets.find((t) => t.id === orcamentosPendentes[0])}
+          pos={visao.pos}
+          buckets={periodo.buckets}
+          alocacoesOrcamento={visao.alocacoes}
           onCancelar={() => setOrcamentosPendentes((p) => p.slice(1))}
           onConfirmar={confirmarOrcamento}
         />
       )}
-    </>
+    </div>
+  );
+}
+
+function Aviso({ texto, cor = c.t3, children }) {
+  return (
+    <div style={{ padding: '60px 24px', textAlign: 'center' }}>
+      <div style={{ fontSize: 14, color: cor, maxWidth: 560, margin: '0 auto', lineHeight: 1.5 }}>{texto}</div>
+      {children}
+    </div>
   );
 }

@@ -47,13 +47,15 @@ export default function TicketsAPlanejar({ tickets, onFechar, onPlanejar, onPlan
   const fila = useMemo(() => tickets
     .filter((t) => t.statusOrcamento === modo.status && !t[modo.linkId]), [tickets, modo]);
 
-  const visiveis = useMemo(() => fila.slice().sort((a, b) => a.diasParaPrazo - b.diasParaPrazo), [fila]);
+  // Sem prazo vai para o fim da lista.
+  const visiveis = useMemo(() => fila.slice().sort((a, b) => (a.diasParaPrazo ?? Infinity) - (b.diasParaPrazo ?? Infinity)), [fila]);
 
+  const urgente = (t) => t.diasParaPrazo !== null && t.diasParaPrazo <= 10;
   const totais = useMemo(() => ({
     tickets: fila.length,
     horas: fila.reduce((s, t) => s + t.orcamento.horasAprovadas, 0),
     valor: fila.reduce((s, t) => s + t.orcamento.valorAprovadoCentavos, 0),
-    urgentes: fila.filter((t) => t.diasParaPrazo <= 10).length,
+    urgentes: fila.filter(urgente).length,
   }), [fila]);
 
   const cards = modo.mostrarHorasValor
@@ -120,7 +122,7 @@ export default function TicketsAPlanejar({ tickets, onFechar, onPlanejar, onPlan
       <div style={{ maxHeight: 460, overflowY: 'auto' }}>
         {visiveis.map((t) => {
           const on = sel.includes(t.id);
-          const corPrazo = t.diasParaPrazo <= 10 ? c.red : t.diasParaPrazo <= 25 ? c.amberText : c.t3;
+          const corPrazo = t.diasParaPrazo === null ? c.t5 : t.diasParaPrazo <= 10 ? c.red : t.diasParaPrazo <= 25 ? c.amberText : c.t3;
           return (
             <div key={t.id} onClick={() => toggle(t.id)} style={{
               display: 'grid', gridTemplateColumns: grid, alignItems: 'center', padding: '12px 18px', cursor: 'pointer',
@@ -133,9 +135,9 @@ export default function TicketsAPlanejar({ tickets, onFechar, onPlanejar, onPlan
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.titulo}</div>
                   <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                    <span style={{ fontSize: 11, fontWeight: 'bold', color: c.tealDark }}>{t.id}</span>
+                    <span style={{ fontSize: 11, fontWeight: 'bold', color: c.tealDark }}>{t.codigo}</span>
                     <span style={{ fontSize: 11, color: c.t5 }}>{t.tipo}</span>
-                    {!modo.mostrarHorasValor && <span style={{ fontSize: 11, color: c.t5 }}>· {modo.rotuloData} {dataCurta(t.orcamento.aprovadoEm)}</span>}
+                    {!modo.mostrarHorasValor && t.orcamento.aprovadoEm && <span style={{ fontSize: 11, color: c.t5 }}>· {modo.rotuloData} {dataCurta(t.orcamento.aprovadoEm)}</span>}
                   </div>
                 </div>
               </div>
@@ -146,18 +148,20 @@ export default function TicketsAPlanejar({ tickets, onFechar, onPlanejar, onPlan
               {modo.mostrarHorasValor && (
                 <div style={{ textAlign: 'right', paddingRight: 10 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 'bold' }}>{t.orcamento.horasAprovadas} h</div>
-                  <div style={{ fontSize: 10.5, color: c.t5, marginTop: 3 }}>≈ {Math.max(1, Math.round(t.orcamento.horasAprovadas / 10))} sem</div>
+                  <div style={{ fontSize: 10.5, color: c.t5, marginTop: 3 }}>≈ {Math.max(1, Math.ceil(t.orcamento.horasAprovadas / 8))} dias úteis</div>
                 </div>
               )}
               {modo.mostrarHorasValor && (
                 <div style={{ textAlign: 'right', paddingRight: 10 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 'bold', color: modo.corTexto }}>{brl(t.orcamento.valorAprovadoCentavos)}</div>
-                  <div style={{ fontSize: 10.5, color: c.t5, marginTop: 3 }}>{modo.rotuloData} {dataCurta(t.orcamento.aprovadoEm)}</div>
+                  {t.orcamento.aprovadoEm && <div style={{ fontSize: 10.5, color: c.t5, marginTop: 3 }}>{modo.rotuloData} {dataCurta(t.orcamento.aprovadoEm)}</div>}
                 </div>
               )}
               <div style={{ textAlign: 'right', paddingRight: 10 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 'bold', color: corPrazo }}>{dataCurta(t.prazoAcordado)}</div>
-                <div style={{ fontSize: 10.5, color: corPrazo, marginTop: 3 }}>{t.diasParaPrazo} dias</div>
+                <div style={{ fontSize: 12.5, fontWeight: 'bold', color: corPrazo }}>{t.prazoAcordado ? dataCurta(t.prazoAcordado) : '—'}</div>
+                <div style={{ fontSize: 10.5, color: corPrazo, marginTop: 3 }}>
+                  {t.diasParaPrazo === null ? 'sem prazo' : t.diasParaPrazo < 0 ? 'atrasado ' + Math.abs(t.diasParaPrazo) + ' dias' : t.diasParaPrazo + ' dias'}
+                </div>
               </div>
             </div>
           );
@@ -175,7 +179,7 @@ export default function TicketsAPlanejar({ tickets, onFechar, onPlanejar, onPlan
           <span style={{ fontSize: 11.5, color: c.t4 }}>
             {selObjs.length
               ? (modo.mostrarHorasValor
-                  ? horasSel + ' h · ' + brl(valorSel) + ' · ' + (horasSel / 10).toFixed(1) + ' semanas-dev de capacidade'
+                  ? horasSel + ' h · ' + brl(valorSel) + ' · ' + (horasSel / 40).toFixed(1) + ' semanas-dev de capacidade'
                   : modo.resumoSelecao)
               : modo.rotuloSelecao}
           </span>

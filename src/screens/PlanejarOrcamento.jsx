@@ -59,7 +59,7 @@ export default function PlanejarOrcamento({ ticket, pos, buckets, alocacoesOrcam
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
             <span style={{ fontSize: 16.5, fontWeight: 'bold', letterSpacing: -0.2 }}>Planejar orçamento</span>
-            <span style={{ fontSize: 10.5, fontWeight: 'bold', color: c.amberText, background: c.amberBg, border: '1px solid ' + c.amberBorder, borderRadius: 20, padding: '3px 9px' }}>{ticket.id}</span>
+            <span style={{ fontSize: 10.5, fontWeight: 'bold', color: c.amberText, background: c.amberBg, border: '1px solid ' + c.amberBorder, borderRadius: 20, padding: '3px 9px' }}>{ticket.codigo}</span>
           </div>
         </div>
         <button type="button" aria-label="Fechar" onClick={onCancelar} style={{ font: 'inherit', width: 28, height: 28, borderRadius: 7, border: '1px solid ' + c.b1, background: c.white, color: c.t4, cursor: 'pointer' }}>✕</button>
@@ -176,7 +176,7 @@ export default function PlanejarOrcamento({ ticket, pos, buckets, alocacoesOrcam
             <div>
               <div style={label}>Horas para elaborar o orçamento</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, flexWrap: 'wrap' }}>
-                <Stepper valor={horas} onChange={setHoras} passo={2} min={2} />
+                <Stepper valor={horas} onChange={setHoras} />
               </div>
             </div>
             <div>

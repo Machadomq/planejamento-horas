@@ -1,4 +1,5 @@
 import { c } from '../theme.js';
+import { ehFimDeSemanaISO, somarDias } from './periodo.js';
 
 export const CAP_SEMANA_PADRAO = 10;
 export const CAP_MES_PADRAO = 180;
@@ -12,11 +13,18 @@ export function ehFimDeSemana(bucket) {
   return dow === 0 || dow === 6;
 }
 
-/** Máscara de dias úteis (não fim de semana) de uma janela dentro do período. */
+/**
+ * Máscara de dias úteis (não fim de semana) de uma janela. Dias fora do período
+ * (barra que começa antes ou termina depois) também contam, para as horas não se
+ * concentrarem só na parte visível.
+ */
 function mascaraUtil(buckets, bucketInicio, duracaoBuckets) {
+  const base = buckets[0] && buckets[0].inicio;
   return Array.from({ length: duracaoBuckets }, (_, i) => {
-    const b = buckets[bucketInicio + i];
-    return b ? !ehFimDeSemana(b) : false;
+    const idx = bucketInicio + i;
+    const b = buckets[idx];
+    if (b) return !ehFimDeSemana(b);
+    return base ? !ehFimDeSemanaISO(somarDias(base, idx)) : false;
   });
 }
 
@@ -66,6 +74,13 @@ export function capacidadeBucket(dev, b) {
     return dev.capacidade.porBucket[b];
   }
   return (dev.capacidade && dev.capacidade.horasSemana) || CAP_SEMANA_PADRAO;
+}
+
+/** Soma da capacidade de um dev nos buckets [inicio, fim). */
+export function capacidadeJanela(dev, inicio, fim) {
+  let s = 0;
+  for (let i = inicio; i < fim; i++) s += capacidadeBucket(dev, i) || 0;
+  return s;
 }
 
 export function ocupacaoDev(dev, alocacoes, buckets) {

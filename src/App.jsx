@@ -4,7 +4,8 @@ import TicketsAPlanejar from './screens/TicketsAPlanejar.jsx';
 import PlanejarDemanda from './screens/PlanejarDemanda.jsx';
 import PlanejarOrcamento from './screens/PlanejarOrcamento.jsx';
 import { c } from './theme.js';
-import { carregarTudo } from './data/api.js';
+import Pessoas from './screens/Pessoas.jsx';
+import { atualizarPessoa, carregarTudo, criarPessoa, excluirPessoa } from './data/api.js';
 import { alocacaoParaGantt, atividadeParaFila, pessoaParaGantt } from './data/adaptadores.js';
 import { bucketsParaDatas, periodoAtual } from './lib/periodo.js';
 import { novoId } from './lib/ids.js';
@@ -53,6 +54,27 @@ export default function App() {
       tickets: dados.atividades.map((at) => atividadeParaFila(at, dados.alocacoes, periodo.hoje)),
     };
   }, [dados, periodo]);
+
+  const alocacoesPorPessoa = useMemo(() => {
+    const n = {};
+    if (dados) dados.alocacoes.forEach((a) => { n[a.pessoaId] = (n[a.pessoaId] || 0) + 1; });
+    return n;
+  }, [dados]);
+
+  // Grava no banco primeiro; a tela só muda se deu certo (em erro, o formulário continua aberto).
+  async function salvarPessoa(campos, id) {
+    const salva = id ? await atualizarPessoa(id, campos) : await criarPessoa(campos);
+    setDados((d) => ({
+      ...d,
+      pessoas: (id ? d.pessoas.map((p) => (p.id === id ? salva : p)) : d.pessoas.concat(salva))
+        .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
+    }));
+  }
+
+  async function removerPessoa(id) {
+    await excluirPessoa(id);
+    setDados((d) => ({ ...d, pessoas: d.pessoas.filter((p) => p.id !== id) }));
+  }
 
   // Ainda só na memória (some ao recarregar). Passa a gravar no banco na etapa g.
   function adicionarAlocacao(payload, tipo, pessoaId) {
@@ -119,7 +141,12 @@ export default function App() {
       )}
 
       {visao && aba === 'pessoas' && (
-        <Aviso texto={visao.pessoas.length + ' pessoas no banco. O cadastro de pessoas chega na etapa e.'} />
+        <Pessoas
+          pessoas={visao.pessoas}
+          alocacoesPorPessoa={alocacoesPorPessoa}
+          onSalvar={salvarPessoa}
+          onExcluir={removerPessoa}
+        />
       )}
 
       {visao && aba === 'atividades' && (

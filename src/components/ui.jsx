@@ -118,6 +118,63 @@ export function Select({ value, options, onChange }) {
   );
 }
 
+// ------------------------------------------------------------ Formulários
+
+export const estiloInput = {
+  font: 'inherit', fontSize: 13, color: c.t1, background: c.white, width: '100%', boxSizing: 'border-box',
+  border: '1px solid ' + c.b1, borderRadius: 8, padding: '8px 10px',
+};
+
+export function Campo({ rotulo, obrigatorio, ajuda, erro, children, style }) {
+  return (
+    <label style={{ display: 'block', ...style }}>
+      <span style={{ display: 'block', fontSize: 10.5, fontWeight: 'bold', color: c.t4, textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 6 }}>
+        {rotulo}{obrigatorio && <span style={{ color: c.red }}> *</span>}
+      </span>
+      {children}
+      {erro
+        ? <span style={{ display: 'block', fontSize: 11, color: c.red, marginTop: 4 }}>{erro}</span>
+        : ajuda && <span style={{ display: 'block', fontSize: 11, color: c.t5, marginTop: 4 }}>{ajuda}</span>}
+    </label>
+  );
+}
+
+export function Botao({ variante = 'primario', children, style, ...props }) {
+  const v = {
+    primario: { color: '#0B2223', background: c.teal, border: '1px solid ' + c.teal },
+    secundario: { color: c.t3, background: c.white, border: '1px solid ' + c.b1 },
+    perigo: { color: c.redText, background: c.white, border: '1px solid ' + c.redBorder },
+    texto: { color: c.t4, background: 'none', border: '1px solid transparent' },
+  }[variante];
+  return (
+    <button type="button" {...props} style={{
+      font: 'inherit', fontSize: 12.5, fontWeight: 'bold', borderRadius: 8, padding: '9px 14px',
+      cursor: props.disabled ? 'default' : 'pointer', opacity: props.disabled ? 0.6 : 1, whiteSpace: 'nowrap',
+      ...v, ...style,
+    }}>{children}</button>
+  );
+}
+
+/** Caixa de aviso. tipo: 'erro' | 'ok' | 'info'. */
+export function Alerta({ tipo = 'erro', children, onFechar }) {
+  const t = {
+    erro: { fg: c.redText, bg: c.redBg, border: c.redBorder },
+    ok: { fg: c.greenText, bg: c.greenBg, border: c.greenBorder },
+    info: { fg: c.tealText, bg: c.tealBg, border: c.tealBorder },
+  }[tipo];
+  return (
+    <div role={tipo === 'erro' ? 'alert' : 'status'} style={{
+      display: 'flex', alignItems: 'flex-start', gap: 12, fontSize: 12.5, lineHeight: 1.45,
+      color: t.fg, background: t.bg, border: '1px solid ' + t.border, borderRadius: 9, padding: '10px 12px',
+    }}>
+      <div style={{ flex: 1 }}>{children}</div>
+      {onFechar && (
+        <button type="button" aria-label="Fechar aviso" onClick={onFechar} style={{ font: 'inherit', background: 'none', border: 'none', color: t.fg, cursor: 'pointer', fontSize: 12, padding: 0 }}>✕</button>
+      )}
+    </div>
+  );
+}
+
 export function Modal({ largura, children }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(18,22,26,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, zIndex: 40 }}>

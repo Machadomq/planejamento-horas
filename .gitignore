@@ -1,0 +1,18 @@
+# Dependências (reinstaladas com `npm install`)
+node_modules/
+
+# Build gerado pelo Vite (o Vercel gera de novo)
+dist/
+
+# Segredos e configurações locais — NUNCA vão para o GitHub
+.env
+.env.*
+!.env.example
+
+# Logs e arquivos do sistema/editor
+npm-debug.log*
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

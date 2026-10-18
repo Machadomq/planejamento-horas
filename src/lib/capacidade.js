@@ -1,12 +1,7 @@
 import { c } from '../theme.js';
-import { ehFimDeSemanaISO, somarDias } from './periodo.js';
+import { HORAS_TURNO } from './turnos.js';
 
 export const CAP_SEMANA_PADRAO = 10;
-export const CAP_MES_PADRAO = 180;
-
-export function capacidadeMensal(dev) {
-  return (dev.capacidade && dev.capacidade.horasMes) || CAP_MES_PADRAO;
-}
 
 export function ehFimDeSemana(bucket) {
   const dow = new Date(bucket.inicio + 'T12:00:00').getDay();
@@ -14,49 +9,15 @@ export function ehFimDeSemana(bucket) {
 }
 
 /**
- * Máscara de dias úteis (não fim de semana) de uma janela. Dias fora do período
- * (barra que começa antes ou termina depois) também contam, para as horas não se
- * concentrarem só na parte visível.
+ * Horas que uma alocação joga em cada bucket (dia) do período: 4 h por turno.
+ * Os turnos são a fonte da verdade (ver lib/turnos.js); turnos fora do período são ignorados.
  */
-function mascaraUtil(buckets, bucketInicio, duracaoBuckets) {
-  const base = buckets[0] && buckets[0].inicio;
-  return Array.from({ length: duracaoBuckets }, (_, i) => {
-    const idx = bucketInicio + i;
-    const b = buckets[idx];
-    if (b) return !ehFimDeSemana(b);
-    return base ? !ehFimDeSemanaISO(somarDias(base, idx)) : false;
-  });
-}
-
-/** Pesos de distribuição das horas ao longo da janela, ignorando fins de semana. Somam 1. */
-export function pesos(distribuicao, mascara) {
-  const n = mascara.length;
-  const ativos = mascara.filter(Boolean).length || 1;
-  if (distribuicao === 'frontLoaded') {
-    const w = mascara.map((util, i) => (util ? n - i : 0));
-    const s = w.reduce((a, b) => a + b, 0) || 1;
-    return w.map((x) => x / s);
-  }
-  return mascara.map((util) => (util ? 1 / ativos : 0));
-}
-
-/** Horas que uma alocação joga em cada bucket do período. */
 export function horasPorBucket(alocacao, buckets) {
   const nBuckets = buckets.length;
   const out = Array(nBuckets).fill(0);
-  const mascara = mascaraUtil(buckets, alocacao.bucketInicio, alocacao.duracaoBuckets);
-  if (alocacao.distribuicao === 'manual' && alocacao.pesos && alocacao.pesos.length === alocacao.duracaoBuckets) {
-    for (let i = 0; i < alocacao.duracaoBuckets; i++) {
-      const b = alocacao.bucketInicio + i;
-      if (b >= 0 && b < nBuckets && mascara[i]) out[b] += alocacao.pesos[i];
-    }
-    return out;
-  }
-  const p = pesos(alocacao.distribuicao, mascara);
-  for (let i = 0; i < alocacao.duracaoBuckets; i++) {
-    const b = alocacao.bucketInicio + i;
-    if (b >= 0 && b < nBuckets) out[b] += alocacao.horasEstimadas * p[i];
-  }
+  (alocacao.turnos || []).forEach((t) => {
+    if (t.indice >= 0 && t.indice < nBuckets) out[t.indice] += HORAS_TURNO;
+  });
   return out;
 }
 
@@ -141,6 +102,27 @@ export function conflitos(devs, alocacoes, buckets, limite = 4) {
     });
   });
   return itens.sort((a, b) => b.nivel - a.nivel).slice(0, limite);
+}
+
+// ----------------------------------------------- Sugestões iniciais do modal
+
+/** Primeiro dia útil a partir do índice `desde` (inclusive). */
+export function primeiroDiaUtil(buckets, desde) {
+  for (let i = Math.max(0, desde); i < buckets.length; i++) if (!ehFimDeSemana(buckets[i])) return i;
+  return Math.max(0, Math.min(desde, buckets.length - 1));
+}
+
+/** Pessoa com menor ocupação na janela [inicio, fim). */
+export function pessoaMaisLivre(pessoas, alocacoes, buckets, inicio, fim) {
+  let melhor = null;
+  let menor = Infinity;
+  pessoas.forEach((p) => {
+    const cap = capacidadeJanela(p, inicio, fim);
+    const carga = cargaDev(alocacoes, p.id, buckets).slice(inicio, fim).reduce((s, h) => s + h, 0);
+    const oc = cap ? carga / cap : Infinity;
+    if (oc < menor) { menor = oc; melhor = p; }
+  });
+  return melhor || pessoas[0];
 }
 
 /** Validação usada pelo modal. O back-end revalida no POST/PATCH. */

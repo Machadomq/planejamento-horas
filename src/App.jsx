@@ -7,11 +7,11 @@ import { c } from './theme.js';
 import Pessoas from './screens/Pessoas.jsx';
 import Atividades from './screens/Atividades.jsx';
 import {
-  atualizarAtividade, atualizarPessoa, carregarTudo, criarAtividade, criarPessoa, excluirAtividade, excluirPessoa,
+  atualizarAtividade, atualizarPessoa, carregarTudo, criarAlocacao, criarAtividade, criarPessoa, excluirAtividade,
+  excluirPessoa,
 } from './data/api.js';
 import { alocacaoParaGantt, atividadeParaFila, pessoaParaGantt } from './data/adaptadores.js';
-import { bucketsParaDatas, periodoAtual } from './lib/periodo.js';
-import { novoId } from './lib/ids.js';
+import { bucketsParaDatas, periodoAtual, somarDias } from './lib/periodo.js';
 
 const ABAS = [
   { key: 'gantt', label: 'Gantt' },
@@ -98,24 +98,32 @@ export default function App() {
     }));
   }
 
-  // Ainda só na memória (some ao recarregar). Passa a gravar no banco na etapa g.
-  function adicionarAlocacao(payload, tipo, pessoaId) {
-    const nova = {
-      id: novoId(), atividadeId: payload.ticketId, pessoaId, tipo,
-      ...bucketsParaDatas(payload.bucketInicio, payload.duracaoBuckets, periodo.inicio),
-      horasEstimadas: payload.horasEstimadas, horasApontadas: 0,
-      distribuicao: payload.distribuicao, pesos: payload.pesos, status: payload.status || 'planejada', versao: 1,
-    };
-    setDados((d) => ({ ...d, alocacoes: d.alocacoes.concat(nova) }));
+  /** Grava a alocação no banco; só então ela entra na tela. Em erro, o modal continua aberto. */
+  async function adicionarAlocacao(payload, tipo, pessoaId) {
+    try {
+      const nova = await criarAlocacao({
+        atividadeId: payload.ticketId, pessoaId, tipo,
+        ...bucketsParaDatas(payload.bucketInicio, payload.duracaoBuckets, periodo.inicio),
+        turnos: payload.turnos.map((t) => ({ data: somarDias(periodo.inicio, t.indice), periodo: t.periodo })),
+        horasApontadas: 0, distribuicao: payload.distribuicao, status: payload.status || 'planejada',
+      });
+      setDados((d) => ({ ...d, alocacoes: d.alocacoes.concat(nova) }));
+    } catch (e) {
+      // UNIQUE(atividade_id, tipo): o ticket já foi planejado (ex.: em outra aba do navegador).
+      if (e.codigo === 'duplicado') {
+        throw new Error('Este ticket já foi planejado. Recarregue a página (F5) para ver a versão atual.');
+      }
+      throw e;
+    }
   }
 
-  function confirmar(payload) {
-    adicionarAlocacao(payload, 'execucao', payload.devId);
+  async function confirmar(payload) {
+    await adicionarAlocacao(payload, 'execucao', payload.devId);
     setPendentes((p) => p.slice(1));
   }
 
-  function confirmarOrcamento(payload) {
-    adicionarAlocacao(payload, 'orcamento', payload.poId);
+  async function confirmarOrcamento(payload) {
+    await adicionarAlocacao(payload, 'orcamento', payload.poId);
     setOrcamentosPendentes((p) => p.slice(1));
   }
 
@@ -197,6 +205,7 @@ export default function App() {
           ticket={visao.tickets.find((t) => t.id === pendentes[0])}
           devs={visao.devs}
           buckets={periodo.buckets}
+          bucketAtual={periodo.bucketAtual}
           alocacoes={visao.alocacoes}
           onCancelar={() => setPendentes((p) => p.slice(1))}
           onConfirmar={confirmar}
@@ -209,6 +218,7 @@ export default function App() {
           ticket={visao.tickets.find((t) => t.id === orcamentosPendentes[0])}
           pos={visao.pos}
           buckets={periodo.buckets}
+          bucketAtual={periodo.bucketAtual}
           alocacoesOrcamento={visao.alocacoes}
           onCancelar={() => setOrcamentosPendentes((p) => p.slice(1))}
           onConfirmar={confirmarOrcamento}

@@ -5,7 +5,11 @@ const num = (v) => (v === null || v === undefined ? v : Number(v));
 
 const PESSOA = {
   id: 'id', nome: 'nome', iniciais: 'iniciais', papel: 'papel', squad: 'squad',
-  tipo: 'tipo', horasDiaUtil: 'horas_dia_util',
+  tipo: 'tipo', jornada: 'jornada',
+};
+
+const TURNO = {
+  id: 'id', alocacaoId: 'alocacao_id', pessoaId: 'pessoa_id', data: 'data', periodo: 'periodo',
 };
 
 const ATIVIDADE = {
@@ -24,14 +28,13 @@ const ALOCACAO = {
 
 // Conversões por campo: [do banco → front, do front → banco].
 const CONV = {
-  horasDiaUtil: [num, num],
   horasAprovadas: [num, num],
   valorAprovadoCentavos: [num, num],
   horasEstimadas: [num, num],
   horasApontadas: [num, num],
   versao: [num, num],
-  // Distribuição manual: lista de horas por dia, guardada como texto JSON.
-  pesos: [(v) => (v ? JSON.parse(v) : null), (v) => (v && v.length ? JSON.stringify(v) : null)],
+  // Coluna legada (antes dos turnos): lista de horas por dia em texto JSON. Hoje fica NULL.
+  pesos:[(v) => (v ? JSON.parse(v) : null), (v) => (v && v.length ? JSON.stringify(v) : null)],
 };
 
 function doBanco(linha, campos) {
@@ -60,3 +63,5 @@ export const atividadeDoBanco = (l) => doBanco(l, ATIVIDADE);
 export const atividadeParaBanco = (o) => paraBanco(o, ATIVIDADE);
 export const alocacaoDoBanco = (l) => doBanco(l, ALOCACAO);
 export const alocacaoParaBanco = (o) => paraBanco(o, ALOCACAO);
+export const turnoDoBanco = (l) => doBanco(l, TURNO);
+export const turnoParaBanco = (o) => paraBanco(o, TURNO);

@@ -17,11 +17,14 @@
 ALTER TABLE pessoas    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE atividades ENABLE ROW LEVEL SECURITY;
 ALTER TABLE alocacoes  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE alocacao_turnos ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY demo_acesso_publico ON pessoas    FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY demo_acesso_publico ON atividades FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY demo_acesso_publico ON alocacoes  FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY demo_acesso_publico ON alocacao_turnos FOR ALL TO anon USING (true) WITH CHECK (true);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON pessoas    TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON atividades TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON alocacoes  TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON alocacao_turnos TO anon;

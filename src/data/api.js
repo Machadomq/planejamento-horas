@@ -6,11 +6,12 @@
 // para uma API da empresa) mantendo os mesmos nomes, parâmetros e retornos.
 //
 // Formato dos objetos (camelCase, datas 'AAAA-MM-DD'):
-//   Pessoa    { id, nome, iniciais, papel, squad, tipo: 'dev'|'po', horasDiaUtil }
+//   Pessoa    { id, nome, iniciais, papel, squad, tipo: 'dev'|'po', jornada: 'integral'|'manha'|'tarde' }
 //   Atividade { id, codigo, titulo, tipo, prioridade, solicitante, area, horasAprovadas,
 //               valorAprovadoCentavos, dataAprovacao, prazo, statusOrcamento }
 //   Alocacao  { id, atividadeId, pessoaId, tipo: 'execucao'|'orcamento', dataInicio, dataFim,
-//               horasEstimadas, horasApontadas, distribuicao, pesos, status, versao }
+//               horasEstimadas, horasApontadas, distribuicao: 'linear'|'manual', status, versao,
+//               turnos: [{ data, periodo: 'manha'|'tarde' }] }   (4 h por turno)
 //
 // Erros: toda função rejeita com um Error de mensagem em português e
 // `erro.codigo` = 'sem_conexao' | 'em_uso' | 'duplicado' | 'nao_encontrado' |
@@ -22,7 +23,7 @@
 import { supabase } from './supabase.js';
 import {
   pessoaDoBanco, pessoaParaBanco, atividadeDoBanco, atividadeParaBanco,
-  alocacaoDoBanco, alocacaoParaBanco,
+  alocacaoDoBanco, alocacaoParaBanco, turnoDoBanco, turnoParaBanco,
 } from './mapeamento.js';
 import { novoId } from '../lib/ids.js';
 import { gerarExemplos } from './seed.js';
@@ -66,10 +67,25 @@ async function executar(acao, montarConsulta) {
   return resposta.data;
 }
 
+/** Lê a tabela inteira em páginas (o Supabase devolve no máximo 1000 linhas por consulta). */
+async function listarTudo(acao, tabela, ordem) {
+  const PAGINA = 1000;
+  let todas = [];
+  for (let de = 0; ; de += PAGINA) {
+    const linhas = await executar(acao, (db) => {
+      let q = db.from(tabela).select('*').order(ordem);
+      if (ordem !== 'id') q = q.order('id'); // desempate estável entre páginas
+      return q.range(de, de + PAGINA - 1);
+    });
+    todas = todas.concat(linhas);
+    if (linhas.length < PAGINA) return todas;
+  }
+}
+
 // ---------------------------------------------------------------- Pessoas
 
 export async function listarPessoas() {
-  const linhas = await executar('carregar as pessoas', (db) => db.from('pessoas').select('*').order('nome'));
+  const linhas = await listarTudo('carregar as pessoas', 'pessoas', 'nome');
   return linhas.map(pessoaDoBanco);
 }
 
@@ -93,7 +109,7 @@ export async function excluirPessoa(id) {
 // ------------------------------------------------------------- Atividades
 
 export async function listarAtividades() {
-  const linhas = await executar('carregar as atividades', (db) => db.from('atividades').select('*').order('codigo'));
+  const linhas = await listarTudo('carregar as atividades', 'atividades', 'codigo');
   return linhas.map(atividadeDoBanco);
 }
 
@@ -115,28 +131,91 @@ export async function excluirAtividade(id) {
 }
 
 // -------------------------------------------------------------- Alocações
+// Cada alocação = um cabeçalho (tabela alocacoes) + seus turnos de 4 h
+// (tabela alocacao_turnos, com UNIQUE(pessoa_id, data, periodo)).
+// TODO(Oracle): no back-end, gravar cabeçalho e turnos numa única transação.
+// Aqui no navegador não há transação: se os turnos falharem, desfazemos o cabeçalho.
+
+const HORAS_TURNO = 4;
+
+function juntarTurnos(alocacoes, turnos) {
+  const por = {};
+  turnos.forEach((t) => { (por[t.alocacaoId] = por[t.alocacaoId] || []).push({ data: t.data, periodo: t.periodo }); });
+  const ordem = (a, b) => (a.data === b.data ? (a.periodo === 'manha' ? -1 : 1) : a.data < b.data ? -1 : 1);
+  return alocacoes.map((a) => ({ ...a, turnos: (por[a.id] || []).sort(ordem) }));
+}
+
+async function gravarTurnos(alocacaoId, pessoaId, turnos) {
+  if (!turnos.length) return;
+  try {
+    await executar('reservar os turnos', (db) => db.from('alocacao_turnos').insert(
+      turnos.map((t) => turnoParaBanco({ id: novoId(), alocacaoId, pessoaId, data: t.data, periodo: t.periodo }))));
+  } catch (e) {
+    if (e.codigo === 'duplicado') {
+      const e2 = new Error('Não foi possível reservar os turnos. Algum turno escolhido já está ocupado por outra atividade dessa pessoa. Recarregue a página (F5) e tente de novo.');
+      e2.codigo = 'turno_ocupado';
+      throw e2;
+    }
+    throw e;
+  }
+}
 
 export async function listarAlocacoes() {
-  const linhas = await executar('carregar as alocações', (db) => db.from('alocacoes').select('*').order('data_inicio'));
-  return linhas.map(alocacaoDoBanco);
+  const [linhas, turnos] = await Promise.all([
+    listarTudo('carregar as alocações', 'alocacoes', 'data_inicio'),
+    listarTudo('carregar os turnos', 'alocacao_turnos', 'id'),
+  ]);
+  return juntarTurnos(linhas.map(alocacaoDoBanco), turnos.map(turnoDoBanco));
 }
 
+/** `dados.turnos` = [{ data, periodo }]. As horas estimadas são sempre 4 h × nº de turnos. */
 export async function criarAlocacao(dados) {
+  const { turnos = [], ...cabecalho } = dados;
   const linha = await executar('salvar o planejamento', (db) =>
-    db.from('alocacoes').insert(alocacaoParaBanco({ ...dados, id: novoId(), versao: 1 })).select().single());
-  return alocacaoDoBanco(linha);
+    db.from('alocacoes').insert(alocacaoParaBanco({
+      ...cabecalho, id: novoId(), versao: 1, pesos: null, horasEstimadas: turnos.length * HORAS_TURNO,
+    })).select().single());
+  try {
+    await gravarTurnos(linha.id, linha.pessoa_id, turnos);
+  } catch (e) {
+    await executar('desfazer o planejamento', (db) => db.from('alocacoes').delete().eq('id', linha.id)).catch(() => {});
+    throw e;
+  }
+  return { ...alocacaoDoBanco(linha), turnos };
 }
 
-/** `versaoAtual` é incrementada a cada gravação (concorrência otimista; hoje não bloqueia). */
+/**
+ * Atualiza campos da alocação. Se `campos.turnos` vier, os turnos são trocados (e as horas recalculadas).
+ * `versaoAtual` é incrementada a cada gravação (concorrência otimista; hoje não bloqueia).
+ */
 export async function atualizarAlocacao(id, campos, versaoAtual) {
+  const { turnos, ...resto } = campos;
+  let antigos = null;
+  if (turnos) {
+    antigos = (await executar('carregar os turnos', (db) => db.from('alocacao_turnos').select('*').eq('alocacao_id', id))).map(turnoDoBanco);
+    resto.horasEstimadas = turnos.length * HORAS_TURNO;
+  }
   const linha = await executar('atualizar a alocação', (db) =>
     db.from('alocacoes')
       .update({
-        ...alocacaoParaBanco({ ...campos, id: undefined, versao: (versaoAtual || 0) + 1 }),
+        ...alocacaoParaBanco({ ...resto, id: undefined, versao: (versaoAtual || 0) + 1 }),
         atualizado_em: new Date().toISOString(),
       })
       .eq('id', id).select().single());
-  return alocacaoDoBanco(linha);
+  if (turnos) {
+    await executar('liberar os turnos antigos', (db) => db.from('alocacao_turnos').delete().eq('alocacao_id', id));
+    try {
+      await gravarTurnos(id, linha.pessoa_id, turnos);
+    } catch (e) {
+      // Devolve os turnos antigos para não deixar a alocação sem turnos.
+      await gravarTurnos(id, antigos.length ? antigos[0].pessoaId : linha.pessoa_id, antigos).catch(() => {});
+      throw e;
+    }
+  }
+  const [comTurnos] = juntarTurnos([alocacaoDoBanco(linha)], turnos
+    ? turnos.map((t) => ({ alocacaoId: id, ...t }))
+    : (await executar('carregar os turnos', (db) => db.from('alocacao_turnos').select('*').eq('alocacao_id', id))).map(turnoDoBanco));
+  return comTurnos;
 }
 
 /** Desplanejar: a atividade volta para a fila. */
@@ -166,5 +245,8 @@ export async function restaurarExemplos() {
   await executar('gravar as pessoas de exemplo', (db) => db.from('pessoas').insert(ex.pessoas.map(pessoaParaBanco)));
   await executar('gravar as atividades de exemplo', (db) => db.from('atividades').insert(ex.atividades.map(atividadeParaBanco)));
   await executar('gravar as alocações de exemplo', (db) => db.from('alocacoes').insert(ex.alocacoes.map(alocacaoParaBanco)));
+  const turnos = ex.alocacoes.flatMap((a) => a.turnos.map((t) =>
+    turnoParaBanco({ id: novoId(), alocacaoId: a.id, pessoaId: a.pessoaId, data: t.data, periodo: t.periodo })));
+  await executar('gravar os turnos de exemplo', (db) => db.from('alocacao_turnos').insert(turnos));
   return { pessoas: ex.pessoas.length, atividades: ex.atividades.length, alocacoes: ex.alocacoes.length };
 }

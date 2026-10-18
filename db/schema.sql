@@ -12,17 +12,18 @@
 -- separadas de propósito: elas NÃO vão para o Oracle.
 -- =====================================================================
 
--- Pessoas (devs e POs). Fim de semana não é dia útil: a capacidade é
--- horas_dia_util em seg–sex e 0 em sáb/dom (calculada na aplicação).
+-- Pessoas (devs e POs). O planejamento é feito em turnos de 4 h:
+-- jornada 'integral' = manhã + tarde (8 h); 'manha' ou 'tarde' = 4 h.
+-- Fim de semana não é dia útil (calculado na aplicação).
 CREATE TABLE pessoas (
-  id              VARCHAR(36)  PRIMARY KEY,
-  nome            VARCHAR(120) NOT NULL,
-  iniciais        VARCHAR(4)   NOT NULL,
-  papel           VARCHAR(120),
-  squad           VARCHAR(80),
-  tipo            VARCHAR(3)   NOT NULL CHECK (tipo IN ('dev', 'po')),
-  horas_dia_util  NUMERIC(4,1) DEFAULT 8 NOT NULL CHECK (horas_dia_util > 0 AND horas_dia_util <= 24),
-  criado_em       TIMESTAMP    DEFAULT CURRENT_TIMESTAMP NOT NULL
+  id         VARCHAR(36)  PRIMARY KEY,
+  nome       VARCHAR(120) NOT NULL,
+  iniciais   VARCHAR(4)   NOT NULL,
+  papel      VARCHAR(120),
+  squad      VARCHAR(80),
+  tipo       VARCHAR(3)   NOT NULL CHECK (tipo IN ('dev', 'po')),
+  jornada    VARCHAR(8)   DEFAULT 'integral' NOT NULL CHECK (jornada IN ('integral', 'manha', 'tarde')),
+  criado_em  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
 -- Atividades (tickets). O "codigo" (TCK-4312) é editável, por isso não é
@@ -47,9 +48,9 @@ CREATE TABLE atividades (
 -- Alocações: as barras do Gantt.
 --   tipo = 'execucao'  → um dev executando a atividade
 --   tipo = 'orcamento' → um PO elaborando o pré-orçamento
--- data_inicio/data_fim são inclusivas (a barra cobre os dois dias).
--- pesos: só para distribuição manual; lista de horas por dia guardada
---        como texto JSON (ex.: "[8,0,4]") — funciona igual no Oracle.
+-- data_inicio/data_fim: a janela escolhida (inclusiva). Os turnos de
+-- trabalho de fato ficam em alocacao_turnos; horas_estimadas = 4 × nº de turnos.
+-- pesos: coluna legada (antes dos turnos), hoje sempre NULL.
 CREATE TABLE alocacoes (
   id               VARCHAR(36)   PRIMARY KEY,
   -- Excluir a atividade apaga suas alocações junto (decisão de negócio).
@@ -73,3 +74,17 @@ CREATE TABLE alocacoes (
 );
 
 CREATE INDEX ix_alocacoes_pessoa ON alocacoes (pessoa_id);
+
+-- Turnos de 4 h de cada alocação: uma linha por (dia, manhã/tarde).
+-- O UNIQUE é a trava principal: uma pessoa nunca tem duas atividades no
+-- mesmo turno (ver DATABASE_SCHEMA.md, planejamento_slots).
+CREATE TABLE alocacao_turnos (
+  id           VARCHAR(36) PRIMARY KEY,
+  alocacao_id  VARCHAR(36) NOT NULL REFERENCES alocacoes (id) ON DELETE CASCADE,
+  pessoa_id    VARCHAR(36) NOT NULL REFERENCES pessoas (id),
+  data         DATE        NOT NULL,
+  periodo      VARCHAR(5)  NOT NULL CHECK (periodo IN ('manha', 'tarde')),
+  UNIQUE (pessoa_id, data, periodo)
+);
+
+CREATE INDEX ix_turnos_alocacao ON alocacao_turnos (alocacao_id);

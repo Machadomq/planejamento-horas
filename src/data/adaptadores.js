@@ -1,16 +1,18 @@
 // Converte os objetos da camada de dados (api.js, com datas) para o formato
 // que as telas e lib/capacidade.js já usavam (índices de coluna do Gantt).
-import { datasParaBuckets, diasEntre, ehFimDeSemanaISO } from '../lib/periodo.js';
+import { datasParaBuckets, diasEntre } from '../lib/periodo.js';
+import { HORAS_TURNO, periodosDaJornada, turnosDisponiveis } from '../lib/turnos.js';
 
-/** Pessoa → linha do Gantt, com a capacidade de cada dia (0 no fim de semana). */
+/** Pessoa → linha do Gantt, com a capacidade de cada dia (4 h por turno da jornada; 0 no fim de semana). */
 export function pessoaParaGantt(p, periodo) {
   return {
     ...p,
-    capacidade: { porBucket: periodo.buckets.map((b) => (ehFimDeSemanaISO(b.inicio) ? 0 : p.horasDiaUtil)) },
+    horasDiaUtil: periodosDaJornada(p.jornada).length * HORAS_TURNO,
+    capacidade: { porBucket: periodo.buckets.map((b) => turnosDisponiveis(p, b).length * HORAS_TURNO) },
   };
 }
 
-/** Alocação (datas) → barra do Gantt (bucketInicio/duracaoBuckets), com dados da atividade. */
+/** Alocação (datas) → barra do Gantt (bucketInicio/duracaoBuckets e turnos por índice), com dados da atividade. */
 export function alocacaoParaGantt(a, atividadesPorId, periodo) {
   const at = atividadesPorId[a.atividadeId] || {};
   return {
@@ -23,10 +25,10 @@ export function alocacaoParaGantt(a, atividadesPorId, periodo) {
     prioridade: at.prioridade,
     devId: a.pessoaId,
     ...datasParaBuckets(a.dataInicio, a.dataFim, periodo.inicio),
+    turnos: (a.turnos || []).map((t) => ({ indice: diasEntre(periodo.inicio, t.data), periodo: t.periodo })),
     horasEstimadas: a.horasEstimadas,
     horasApontadas: a.horasApontadas,
     distribuicao: a.distribuicao,
-    pesos: a.pesos,
     status: a.status,
     versao: a.versao,
   };

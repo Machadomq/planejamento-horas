@@ -2,9 +2,10 @@ import React, { useMemo, useState } from 'react';
 import { c, label } from '../theme.js';
 import { Alerta, Avatar, Botao, Campo, Chip, Modal, estiloInput } from '../components/ui.jsx';
 import { gerarIniciais } from '../lib/formato.js';
-import { HORAS_DIA_PADRAO, TIPOS_PESSOA } from '../data/catalogos.js';
+import { JORNADAS, JORNADA_PADRAO, TIPOS_PESSOA } from '../data/catalogos.js';
 
-const GRID = '44px minmax(0, 1.6fr) minmax(0, 1.4fr) minmax(0, 1.2fr) 70px 90px 90px 170px';
+const GRID = '44px minmax(0, 1.6fr) minmax(0, 1.4fr) minmax(0, 1.2fr) 70px 110px 90px 170px';
+const rotuloJornada = (j) => (JORNADAS.find((x) => x.valor === j) || JORNADAS[0]).rotulo;
 
 /**
  * Cadastro de pessoas (devs e POs).
@@ -73,7 +74,7 @@ export default function Pessoas({ pessoas, alocacoesPorPessoa, onSalvar, onExclu
               <div style={label}>Papel</div>
               <div style={label}>Squad</div>
               <div style={label}>Tipo</div>
-              <div style={{ ...label, textAlign: 'right' }}>Horas/dia</div>
+              <div style={label}>Jornada</div>
               <div style={{ ...label, textAlign: 'right' }}>Alocações</div>
               <div />
             </div>
@@ -90,7 +91,7 @@ export default function Pessoas({ pessoas, alocacoesPorPessoa, onSalvar, onExclu
                     border: '1px solid ' + (p.tipo === 'po' ? c.amberBorder : c.tealBorder),
                   }}>{p.tipo === 'po' ? 'PO' : 'Dev'}</span>
                 </div>
-                <div style={{ fontSize: 12.5, textAlign: 'right' }}>{p.horasDiaUtil} h</div>
+                <div style={{ fontSize: 12, color: c.t2 }}>{rotuloJornada(p.jornada)} <span style={{ color: c.t5 }}>· {p.horasDiaUtil} h</span></div>
                 <div style={{ fontSize: 12.5, textAlign: 'right', color: c.t3 }}>{alocacoesPorPessoa[p.id] || 0}</div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
                   <Botao variante="secundario" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => { setErro(null); setAviso(null); setEditando(p); }}>Editar</Botao>
@@ -128,18 +129,16 @@ function FormPessoa({ pessoa, squads, onCancelar, onSalvar }) {
   const [tipo, setTipo] = useState(pessoa ? pessoa.tipo : 'dev');
   const [papel, setPapel] = useState(pessoa ? pessoa.papel || '' : '');
   const [squad, setSquad] = useState(pessoa ? pessoa.squad || '' : '');
-  const [horasDia, setHorasDia] = useState(String(pessoa ? pessoa.horasDiaUtil : HORAS_DIA_PADRAO));
+  const [jornada, setJornada] = useState(pessoa ? pessoa.jornada : JORNADA_PADRAO);
   const [tentou, setTentou] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState(null);
 
-  const horasNum = Number(String(horasDia).replace(',', '.'));
   const erros = {
     nome: !nome.trim() ? 'Informe o nome.' : null,
     iniciais: !iniciais.trim() ? 'Informe as iniciais.' : null,
-    horas: !(horasNum > 0 && horasNum <= 24) ? 'Use um número entre 0,5 e 24.' : null,
   };
-  const valido = !erros.nome && !erros.iniciais && !erros.horas;
+  const valido = !erros.nome && !erros.iniciais;
 
   function mudarNome(v) {
     setNome(v);
@@ -154,7 +153,7 @@ function FormPessoa({ pessoa, squads, onCancelar, onSalvar }) {
     try {
       await onSalvar({
         nome: nome.trim(), iniciais: iniciais.trim().toUpperCase(), tipo,
-        papel: papel.trim(), squad: squad.trim(), horasDiaUtil: horasNum,
+        papel: papel.trim(), squad: squad.trim(), jornada,
       });
     } catch (e) {
       // Mantém o formulário preenchido para tentar de novo.
@@ -203,9 +202,15 @@ function FormPessoa({ pessoa, squads, onCancelar, onSalvar }) {
           </Campo>
         </div>
 
-        <Campo rotulo="Horas por dia útil" obrigatorio erro={tentou && erros.horas} ajuda="Fins de semana não contam (capacidade 0)." style={{ maxWidth: 200 }}>
-          <input style={estiloInput} inputMode="decimal" value={horasDia} onChange={(e) => setHorasDia(e.target.value)} />
-        </Campo>
+        <div>
+          <div style={{ ...label, marginBottom: 6 }}>Jornada <span style={{ color: c.red }}>*</span></div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {JORNADAS.map((j) => <Chip key={j.valor} ativo={jornada === j.valor} onClick={() => setJornada(j.valor)}>{j.rotulo}</Chip>)}
+          </div>
+          <div style={{ fontSize: 11, color: c.t5, marginTop: 5 }}>
+            {JORNADAS.find((j) => j.valor === jornada).descricao}. O planejamento é feito em turnos de 4 h; fins de semana não contam.
+          </div>
+        </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
           <Botao variante="texto" onClick={onCancelar}>Cancelar</Botao>

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { c, label, STATUS } from '../theme.js';
 import { Avatar, Barra, Select } from '../components/ui.jsx';
 import { cargaDev, capacidadeBucket, capacidadeJanela, corOcupacao, ehFimDeSemana } from '../lib/capacidade.js';
+import { trechos } from '../lib/turnos.js';
 const ESCALAS = ['Dia', 'Semana', 'Mês'];
 
 export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes }) {
@@ -39,13 +40,14 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes }) {
     const alocacoesVisiveis = alocacoes.filter((a) => idsVisiveis.has(a.devId));
     const horas = porDev.reduce((s, x) => s + x.horas, 0);
     const cap = porDev.reduce((s, x) => s + x.capPeriodo, 0);
-    const apertados = porDev.filter((x) => x.carga.some((h, i) => h / capacidadeBucket(x.dev, i) > 0.85)).length;
+    // Com turnos, um dia cheio (8/8 h) é normal; o aperto é medido nos próximos 30 dias.
+    const apertados = porDev.filter((x) => x.pct > 0.85).length;
     const risco = alocacoesVisiveis.filter((a) => a.status === 'risco').length;
     return [
       { v: Math.round(horas) + ' h', l: 'Horas estimadas nos próximos 30 dias', cor: c.t1 },
       { v: cap + ' h', l: 'Capacidade nos próximos 30 dias (' + devsVisiveis.length + (devsVisiveis.length === 1 ? ' pessoa)' : ' pessoas)'), cor: c.t1 },
       { v: (cap ? Math.round((horas / cap) * 100) : 0) + ' %', l: 'Ocupação vs. capacidade (30 dias)', cor: corOcupacao(cap ? horas / cap : 0) },
-      { v: String(apertados), l: 'Pessoas acima de 85% em algum dia', cor: apertados ? c.amber : c.green },
+      { v: String(apertados), l: 'Pessoas acima de 85% nos próximos 30 dias', cor: apertados ? c.amber : c.green },
       { v: String(risco), l: 'Demandas em risco', cor: risco ? c.red : c.green },
     ];
   }, [alocacoes, porDev, devsVisiveis]);
@@ -54,6 +56,10 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes }) {
   const colGrid = { display: 'grid', gridTemplateColumns: 'repeat(' + n + ', minmax(' + LARGURA_COL + 'px, 1fr))', minWidth: n * LARGURA_COL };
   const fds = useMemo(() => buckets.map(ehFimDeSemana), [buckets]);
   const fundoCol = (i) => (i === bucketAtual ? 'rgba(23,169,174,0.06)' : fds[i] ? 'rgba(17,24,39,0.045)' : i % 2 ? '#FCFCFD' : 'transparent');
+  // Trechos de turnos cortados nas bordas do período (em meios-dias: 0 … 2n-1).
+  const trechosVisiveis = (turnos) => trechos(turnos || [])
+    .map(([a, b]) => [Math.max(0, a), Math.min(2 * n - 1, b)])
+    .filter(([a, b]) => a <= b);
   const DivisorTurno = () => (
     <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, borderLeft: '1px dashed ' + c.b4, pointerEvents: 'none' }} />
   );
@@ -152,6 +158,14 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes }) {
                   </div>
                   <div style={{ position: 'relative', ...colGrid, minHeight: 48 }}>
                     {buckets.map((b, i) => <div key={b.id} style={{ position: 'relative', borderLeft: '1px solid ' + c.b3, background: fundoCol(i) }}><DivisorTurno /></div>)}
+                    {/* Resumo da pessoa: faixa fina nos turnos já ocupados (vazio = turno livre). */}
+                    {trechosVisiveis(alocacoes.filter((a) => a.devId === dev.id).flatMap((a) => a.turnos || [])).map(([a, b]) => (
+                      <div key={a} style={{
+                        position: 'absolute', top: '50%', height: 8, transform: 'translateY(-50%)', pointerEvents: 'none', borderRadius: 3,
+                        left: 'calc(' + (a / (2 * n)) * 100 + '% + 2px)', width: 'calc(' + ((b - a + 1) / (2 * n)) * 100 + '% - 4px)',
+                        background: c.heatFree,
+                      }} />
+                    ))}
                   </div>
                 </div>
 
@@ -175,7 +189,12 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes }) {
                           <div style={{ fontSize: 12, fontWeight: ativa ? 'bold' : 'normal', color: c.t2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{aloc.titulo}</div>
                           <div style={{ fontSize: 10.5, color: c.t5, marginTop: 2 }}>{aloc.ticketId} · {orcamento ? 'Pré-orçamento' : aloc.tipo}</div>
                         </div>
-                        <div style={{ fontSize: 11, fontWeight: 'bold', color: c.t3 }}>{aloc.horasEstimadas} h</div>
+                        <div style={{ textAlign: 'right' }} title={aloc.horasApontadas + ' h apontadas de ' + aloc.horasEstimadas + ' h'}>
+                          <div style={{ fontSize: 11, fontWeight: 'bold', color: c.t3 }}>{aloc.horasEstimadas} h</div>
+                          <div style={{ marginTop: 3 }}>
+                            <Barra pct={aloc.horasEstimadas ? (aloc.horasApontadas / aloc.horasEstimadas) * 100 : 0} cor={st.border} altura={3} largura={34} />
+                          </div>
+                        </div>
                       </div>
                       <div style={{ position: 'relative', ...colGrid, minHeight: 44 }}>
                         {buckets.map((b, i) => (
@@ -187,24 +206,25 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes }) {
                               : fundoCol(i),
                           }}><DivisorTurno /></div>
                         ))}
-                        <div style={{
-                          position: 'absolute', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none',
-                          left: (ini / n) * 100 + '%', width: ((fim - ini) / n) * 100 + '%', padding: '0 4px', boxSizing: 'border-box',
-                        }}>
-                          <div style={{
-                            height: 24, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                            gap: 6, padding: '0 8px', boxSizing: 'border-box', overflow: 'hidden',
-                            background: st.bg,
-                            border: (ativa ? 2 : 1) + 'px ' + (orcamento ? 'dashed ' : 'solid ') + st.border,
-                            boxShadow: ativa ? '0 2px 8px rgba(23,169,174,0.35)' : 'none',
+                        {/* Uma barra por trecho contínuo de turnos: cada turno ocupa a sua metade do dia (M | T). */}
+                        {trechosVisiveis(aloc.turnos).map(([a, b], k) => (
+                          <div key={a} style={{
+                            position: 'absolute', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none',
+                            left: (a / (2 * n)) * 100 + '%', width: ((b - a + 1) / (2 * n)) * 100 + '%', padding: '0 2px', boxSizing: 'border-box',
                           }}>
-                            <span style={{ fontSize: 10.5, fontWeight: 'bold', color: st.fg, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{aloc.ticketId}</span>
-                            <span style={{ fontSize: 10, color: st.fg, opacity: 0.8, whiteSpace: 'nowrap' }}>{aloc.horasEstimadas} h</span>
+                            <div style={{
+                              height: 24, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              padding: '0 5px', boxSizing: 'border-box', overflow: 'hidden',
+                              background: st.bg,
+                              border: (ativa ? 2 : 1) + 'px ' + (orcamento ? 'dashed ' : 'solid ') + st.border,
+                              boxShadow: ativa ? '0 2px 8px rgba(23,169,174,0.35)' : 'none',
+                            }}>
+                              {(k === 0 || b - a >= 2) && (
+                                <span style={{ fontSize: 10, fontWeight: 'bold', color: st.fg, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{aloc.ticketId}</span>
+                              )}
+                            </div>
                           </div>
-                          <div style={{ marginTop: 2 }}>
-                            <Barra pct={(aloc.horasApontadas / aloc.horasEstimadas) * 100} cor={st.border} altura={3} />
-                          </div>
-                        </div>
+                        ))}
                       </div>
                     </div>
                   );

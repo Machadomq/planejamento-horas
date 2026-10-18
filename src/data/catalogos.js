@@ -9,4 +9,10 @@ export const TIPOS_PESSOA = [
   { valor: 'dev', rotulo: 'Dev' },
   { valor: 'po', rotulo: 'PO' },
 ];
-export const HORAS_DIA_PADRAO = 8;
+// Jornada em turnos de 4 h (ver lib/turnos.js).
+export const JORNADAS = [
+  { valor: 'integral', rotulo: 'Integral', descricao: 'Manhã e tarde · 8 h/dia', horas: 8 },
+  { valor: 'manha', rotulo: 'Só manhã', descricao: '4 h/dia', horas: 4 },
+  { valor: 'tarde', rotulo: 'Só tarde', descricao: '4 h/dia', horas: 4 },
+];
+export const JORNADA_PADRAO = 'integral';

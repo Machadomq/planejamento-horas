@@ -4,8 +4,33 @@ import TicketsAPlanejar from './screens/TicketsAPlanejar.jsx';
 import PlanejarDemanda from './screens/PlanejarDemanda.jsx';
 import PlanejarOrcamento from './screens/PlanejarOrcamento.jsx';
 import * as mock from './data/mock.js';
+import { restaurarExemplos } from './data/api.js';
 
 let seq = 1;
+
+// PROVISÓRIO (etapa c): testa a gravação dos exemplos no banco. Sai na etapa d.
+function BotaoCarregarExemplos() {
+  const [ocupado, setOcupado] = useState(false);
+  async function carregar() {
+    if (!window.confirm('Isso APAGA tudo que estiver no banco e grava os dados de exemplo. Continuar?')) return;
+    setOcupado(true);
+    try {
+      const n = await restaurarExemplos();
+      window.alert('Exemplos gravados: ' + n.pessoas + ' pessoas, ' + n.atividades + ' atividades, ' + n.alocacoes + ' alocações.');
+    } catch (e) {
+      window.alert(e.message);
+    } finally {
+      setOcupado(false);
+    }
+  }
+  return (
+    <button type="button" onClick={carregar} disabled={ocupado} style={{
+      position: 'fixed', right: 20, bottom: 20, zIndex: 30, font: 'inherit', fontSize: 12, fontWeight: 'bold',
+      color: '#fff', background: '#12161A', border: 'none', borderRadius: 8, padding: '10px 14px', cursor: 'pointer',
+      boxShadow: '0 6px 18px rgba(0,0,0,0.25)',
+    }}>{ocupado ? 'Gravando…' : 'Carregar exemplos no banco (provisório)'}</button>
+  );
+}
 let seqOrcamento = 1;
 
 export default function App() {
@@ -48,6 +73,7 @@ export default function App() {
 
   return (
     <>
+      <BotaoCarregarExemplos />
       <GanttHoras
         buckets={mock.buckets}
         bucketAtual={mock.bucketAtual}

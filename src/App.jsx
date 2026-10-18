@@ -5,7 +5,10 @@ import PlanejarDemanda from './screens/PlanejarDemanda.jsx';
 import PlanejarOrcamento from './screens/PlanejarOrcamento.jsx';
 import { c } from './theme.js';
 import Pessoas from './screens/Pessoas.jsx';
-import { atualizarPessoa, carregarTudo, criarPessoa, excluirPessoa } from './data/api.js';
+import Atividades from './screens/Atividades.jsx';
+import {
+  atualizarAtividade, atualizarPessoa, carregarTudo, criarAtividade, criarPessoa, excluirAtividade, excluirPessoa,
+} from './data/api.js';
 import { alocacaoParaGantt, atividadeParaFila, pessoaParaGantt } from './data/adaptadores.js';
 import { bucketsParaDatas, periodoAtual } from './lib/periodo.js';
 import { novoId } from './lib/ids.js';
@@ -74,6 +77,25 @@ export default function App() {
   async function removerPessoa(id) {
     await excluirPessoa(id);
     setDados((d) => ({ ...d, pessoas: d.pessoas.filter((p) => p.id !== id) }));
+  }
+
+  async function salvarAtividade(campos, id) {
+    const salva = id ? await atualizarAtividade(id, campos) : await criarAtividade(campos);
+    setDados((d) => ({
+      ...d,
+      atividades: (id ? d.atividades.map((a) => (a.id === id ? salva : a)) : d.atividades.concat(salva))
+        .sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR')),
+    }));
+  }
+
+  /** O banco apaga junto as alocações (ON DELETE CASCADE); a tela faz o mesmo. */
+  async function removerAtividade(id) {
+    await excluirAtividade(id);
+    setDados((d) => ({
+      ...d,
+      atividades: d.atividades.filter((a) => a.id !== id),
+      alocacoes: d.alocacoes.filter((a) => a.atividadeId !== id),
+    }));
   }
 
   // Ainda só na memória (some ao recarregar). Passa a gravar no banco na etapa g.
@@ -150,7 +172,14 @@ export default function App() {
       )}
 
       {visao && aba === 'atividades' && (
-        <Aviso texto={visao.tickets.length + ' atividades no banco. O cadastro de atividades chega na etapa f.'} />
+        <Atividades
+          atividades={dados.atividades}
+          alocacoes={dados.alocacoes}
+          pessoas={dados.pessoas}
+          hoje={periodo.hoje}
+          onSalvar={salvarAtividade}
+          onExcluir={removerAtividade}
+        />
       )}
 
       {visao && fila && !pendentes.length && !orcamentosPendentes.length && (

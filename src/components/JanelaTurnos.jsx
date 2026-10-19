@@ -12,6 +12,15 @@ import {
 
 const plural = (n, um, varios) => n + ' ' + (n === 1 ? um : varios);
 
+/** Turnos livres suficientes para `horas`, preenchidos a partir de `inicio` (a janela cresce até caber). */
+function sugerirTurnos(pessoa, alocacoes, buckets, inicio, horas) {
+  const ocupados = turnosOcupados(alocacoes, pessoa.id);
+  return distribuirLinear(pessoa, buckets, inicio, duracaoParaCaber(pessoa, buckets, inicio, horas, ocupados), horas, ocupados).turnos;
+}
+
+/** Dias corridos do início até o último turno (mínimo 1). */
+const duracaoDe = (turnos, inicio) => (turnos.length ? Math.max(...turnos.map((t) => t.indice)) - inicio + 1 : 1);
+
 /**
  * Estado do planejamento em turnos de 4 h.
  * Linear = preenche os turnos livres a partir do início da janela.
@@ -25,14 +34,15 @@ export function usePlanejamento({ pessoas, alocacoes, buckets, bucketAtual, hora
     const ini = primeiroDiaUtil(buckets, bucketAtual);
     const p = pessoaMaisLivre(pessoas, alocacoes, buckets, ini, Math.min(n, ini + 30));
     const h = arredondarTurno(horasIniciais);
-    return { pessoaId: p.id, inicio: ini, horas: h, duracao: duracaoParaCaber(p, buckets, ini, h, turnosOcupados(alocacoes, p.id)) };
+    return { pessoaId: p.id, inicio: ini, horas: h, turnos: sugerirTurnos(p, alocacoes, buckets, ini, h) };
   });
   const [pessoaId, setPessoaId] = useState(inicial.pessoaId);
   const [horas, setHoras] = useState(inicial.horas);
-  const [distribuicao, setDistribuicao] = useState('linear');
-  const [janela, setJanela] = useState({ inicio: inicial.inicio, duracao: inicial.duracao });
+  // Padrão: Manual, já com a sugestão automática marcada (o usuário só ajusta os turnos).
+  const [distribuicao, setDistribuicao] = useState('manual');
+  const [janela, setJanela] = useState({ inicio: inicial.inicio, duracao: duracaoDe(inicial.turnos, inicial.inicio) });
   const [ancora, setAncora] = useState(null);
-  const [manual, setManual] = useState([]);
+  const [manual, setManual] = useState(inicial.turnos);
 
   const pessoa = pessoas.find((p) => p.id === pessoaId) || pessoas[0];
   const ocupados = useMemo(() => turnosOcupados(alocacoes, pessoaId), [alocacoes, pessoaId]);
@@ -60,9 +70,17 @@ export function usePlanejamento({ pessoas, alocacoes, buckets, bucketAtual, hora
   }
 
   function escolherPessoa(id) {
+    const p = pessoas.find((x) => x.id === id);
     setPessoaId(id);
-    setManual([]);
-    setDistribuicao('linear');
+    setAncora(null);
+    if (distribuicao === 'manual') {
+      // Refaz a sugestão para a nova pessoa, a partir do mesmo início.
+      const sugestao = sugerirTurnos(p, alocacoes, buckets, bucketInicio, horas);
+      setManual(sugestao);
+      setJanela({ inicio: bucketInicio, duracao: duracaoDe(sugestao, bucketInicio) });
+    } else {
+      setManual([]); // a seleção manual era da outra pessoa
+    }
   }
 
   /** Linear: 1º clique = início, 2º clique = fim da janela. */

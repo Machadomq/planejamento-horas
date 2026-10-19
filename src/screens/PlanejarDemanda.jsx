@@ -5,8 +5,8 @@ import { JanelaTurnos, usePlanejamento } from '../components/JanelaTurnos.jsx';
 import { capacidadeBucket, corOcupacao, cargaDev } from '../lib/capacidade.js';
 
 const DISTRIBUICOES = [
-  { key: 'linear', label: 'Linear' },
   { key: 'manual', label: 'Manual' },
+  { key: 'linear', label: 'Linear' },
 ];
 
 const COR = { forte: c.teal, fundo: c.tealBg, texto: c.tealText };

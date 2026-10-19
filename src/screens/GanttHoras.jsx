@@ -3,11 +3,18 @@ import { c, label, STATUS } from '../theme.js';
 import { Avatar, Barra, Select } from '../components/ui.jsx';
 import { cargaDev, capacidadeBucket, capacidadeJanela, corOcupacao, ehFimDeSemana } from '../lib/capacidade.js';
 import { trechos } from '../lib/turnos.js';
+import FaixaEdicao, { ALTURA_FAIXA } from '../components/FaixaEdicao.jsx';
 const ESCALAS = ['Dia', 'Semana', 'Mês'];
 
-export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes }) {
+/**
+ * onAtualizar(id, campos) e onExcluir(id) devolvem Promise; onRemarcar(alocacao) abre o modal.
+ */
+export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes, onAtualizar, onRemarcar, onExcluir }) {
   const n = buckets.length;
   const [selId, setSelId] = useState(null);
+  // Clicar de novo na mesma atividade fecha a edição.
+  const selecionar = (id) => setSelId((atual) => (atual === id ? null : id));
+  const selecionada = alocacoes.find((a) => a.id === selId) || null;
   const [escala, setEscala] = useState('Dia');
   const [filtroSquad, setFiltroSquad] = useState('');
   const [buscaRecurso, setBuscaRecurso] = useState('');
@@ -65,7 +72,7 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes }) {
   );
 
   return (
-    <div style={{ background: c.s2, paddingBottom: 28, minHeight: '100%' }}>
+    <div style={{ background: c.s2, paddingBottom: selecionada ? ALTURA_FAIXA + 40 : 28, minHeight: '100%' }}>
       <div style={{ padding: '18px 24px 0', display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 12 }}>
         {kpis.map((k) => (
           <div key={k.l} style={{ background: c.white, border: '1px solid ' + c.b1, borderRadius: 10, padding: '14px 16px' }}>
@@ -179,7 +186,7 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes }) {
                   const fundoLinha = ativa ? '#F7FCFC' : c.white;
                   return (
                     <div key={aloc.id} style={{ display: 'grid', gridTemplateColumns: '340px auto', borderBottom: '1px solid ' + c.b3, background: fundoLinha }}>
-                      <div onClick={() => setSelId(aloc.id)} style={{
+                      <div onClick={() => selecionar(aloc.id)} title="Clique para editar" style={{
                         display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 9px 20px', minHeight: 44, cursor: 'pointer',
                         borderRight: '1px solid ' + c.b2, boxShadow: ativa ? 'inset 3px 0 0 ' + c.teal : 'none',
                         position: 'sticky', left: 0, background: fundoLinha, zIndex: 2,
@@ -196,7 +203,7 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes }) {
                           </div>
                         </div>
                       </div>
-                      <div style={{ position: 'relative', ...colGrid, minHeight: 44 }}>
+                      <div onClick={() => selecionar(aloc.id)} style={{ position: 'relative', ...colGrid, minHeight: 44, cursor: 'pointer' }}>
                         {buckets.map((b, i) => (
                           <div key={b.id} style={{
                             position: 'relative',
@@ -238,6 +245,19 @@ export default function GanttHoras({ buckets, bucketAtual, devs, alocacoes }) {
 
         </div>
       </div>
+
+      {selecionada && (
+        <FaixaEdicao
+          aloc={selecionada}
+          pessoa={devs.find((d) => d.id === selecionada.devId)}
+          inicioPeriodo={buckets[0].inicio}
+          onStatus={(status) => onAtualizar(selecionada.id, { status })}
+          onApontadas={(horasApontadas) => onAtualizar(selecionada.id, { horasApontadas })}
+          onRemarcar={() => onRemarcar(selecionada)}
+          onExcluir={async () => { await onExcluir(selecionada.id); setSelId(null); }}
+          onFechar={() => setSelId(null)}
+        />
+      )}
     </div>
   );
 }

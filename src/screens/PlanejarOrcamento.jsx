@@ -11,8 +11,9 @@ const DISTRIBUICOES = [
 
 const COR = { forte: c.amber, fundo: c.amberBg, texto: c.amberText };
 
-export default function PlanejarOrcamento({ ticket, pos, buckets, bucketAtual, alocacoesOrcamento, onCancelar, onConfirmar }) {
-  const plan = usePlanejamento({ pessoas: pos, alocacoes: alocacoesOrcamento, buckets, bucketAtual, horasIniciais: 8 });
+/** Agendar o PO para o pré-orçamento; com `existente` (alocação do Gantt), remarca turnos/horas/PO. */
+export default function PlanejarOrcamento({ ticket, pos, buckets, bucketAtual, alocacoesOrcamento, existente, onCancelar, onConfirmar }) {
+  const plan = usePlanejamento({ pessoas: pos, alocacoes: alocacoesOrcamento, buckets, bucketAtual, horasIniciais: 8, existente });
   const [salvando, setSalvando] = useState(false);
   const [erroSalvar, setErroSalvar] = useState(null);
 
@@ -36,7 +37,7 @@ export default function PlanejarOrcamento({ ticket, pos, buckets, bucketAtual, a
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24, padding: '18px 22px 16px', borderBottom: '1px solid ' + c.b2 }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-            <span style={{ fontSize: 16.5, fontWeight: 'bold', letterSpacing: -0.2 }}>Planejar orçamento</span>
+            <span style={{ fontSize: 16.5, fontWeight: 'bold', letterSpacing: -0.2 }}>{existente ? 'Remarcar pré-orçamento' : 'Planejar orçamento'}</span>
             <span style={{ fontSize: 10.5, fontWeight: 'bold', color: c.amberText, background: c.amberBg, border: '1px solid ' + c.amberBorder, borderRadius: 20, padding: '3px 9px' }}>{ticket.codigo}</span>
           </div>
           <div style={{ fontSize: 11.5, color: c.t4, marginTop: 5 }}>Agende o PO para elaborar o pré-orçamento, em turnos de 4 h (manhã e tarde).</div>
@@ -127,7 +128,7 @@ export default function PlanejarOrcamento({ ticket, pos, buckets, bucketAtual, a
           font: 'inherit', fontSize: 13, fontWeight: 'bold', color: '#3D2F00', background: c.amber, border: 'none', borderRadius: 8, padding: '10px 18px',
           cursor: salvando || !plan.pronto ? 'default' : 'pointer', opacity: salvando || !plan.pronto ? 0.55 : 1,
         }}>
-          {salvando ? 'Salvando…' : 'Planejar orçamento'}
+          {salvando ? 'Salvando…' : existente ? 'Salvar alterações' : 'Planejar orçamento'}
         </button>
       </div>
     </Modal>

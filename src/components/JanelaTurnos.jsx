@@ -13,8 +13,8 @@ import {
 const plural = (n, um, varios) => n + ' ' + (n === 1 ? um : varios);
 
 /** Turnos livres suficientes para `horas`, preenchidos a partir de `inicio` (a janela cresce até caber). */
-function sugerirTurnos(pessoa, alocacoes, buckets, inicio, horas) {
-  const ocupados = turnosOcupados(alocacoes, pessoa.id);
+function sugerirTurnos(pessoa, alocacoes, buckets, inicio, horas, ignorarId) {
+  const ocupados = turnosOcupados(alocacoes, pessoa.id, ignorarId);
   return distribuirLinear(pessoa, buckets, inicio, duracaoParaCaber(pessoa, buckets, inicio, horas, ocupados), horas, ocupados).turnos;
 }
 
@@ -25,12 +25,18 @@ const duracaoDe = (turnos, inicio) => (turnos.length ? Math.max(...turnos.map((t
  * Estado do planejamento em turnos de 4 h.
  * Linear = preenche os turnos livres a partir do início da janela.
  * Manual = o usuário marca cada turno; a janela passa a ser do 1º ao último turno marcado.
+ * `existente` (opcional) = alocação do Gantt sendo remarcada: abre com os turnos dela,
+ * e esses turnos não contam como ocupados.
  */
-export function usePlanejamento({ pessoas, alocacoes, buckets, bucketAtual, horasIniciais }) {
+export function usePlanejamento({ pessoas, alocacoes, buckets, bucketAtual, horasIniciais, existente }) {
   const n = buckets.length;
+  const ignorarId = existente ? existente.id : undefined;
   // Sugestão inicial: pessoa mais livre nos próximos 30 dias, a partir do primeiro dia útil
   // de hoje em diante, com a menor janela que tenha turnos livres para as horas.
   const [inicial] = useState(() => {
+    if (existente) {
+      return { pessoaId: existente.devId, inicio: existente.bucketInicio, horas: existente.horasEstimadas, turnos: existente.turnos };
+    }
     const ini = primeiroDiaUtil(buckets, bucketAtual);
     const p = pessoaMaisLivre(pessoas, alocacoes, buckets, ini, Math.min(n, ini + 30));
     const h = arredondarTurno(horasIniciais);
@@ -45,7 +51,7 @@ export function usePlanejamento({ pessoas, alocacoes, buckets, bucketAtual, hora
   const [manual, setManual] = useState(inicial.turnos);
 
   const pessoa = pessoas.find((p) => p.id === pessoaId) || pessoas[0];
-  const ocupados = useMemo(() => turnosOcupados(alocacoes, pessoaId), [alocacoes, pessoaId]);
+  const ocupados = useMemo(() => turnosOcupados(alocacoes, pessoaId, ignorarId), [alocacoes, pessoaId, ignorarId]);
   const linear = useMemo(() => distribuirLinear(pessoa, buckets, janela.inicio, janela.duracao, horas, ocupados),
     [pessoa, buckets, janela, horas, ocupados]);
 
@@ -55,7 +61,8 @@ export function usePlanejamento({ pessoas, alocacoes, buckets, bucketAtual, hora
   const bucketInicio = distribuicao === 'manual' && manual.length ? Math.min(...indices) : janela.inicio;
   const duracao = distribuicao === 'manual' && manual.length ? Math.max(...indices) - bucketInicio + 1 : janela.duracao;
 
-  const candidata = { id: '__nova', devId: pessoaId, bucketInicio, duracaoBuckets: duracao, horasEstimadas: turnos.length * HORAS_TURNO, turnos };
+  // Com o mesmo id da existente, validarJanela não conta os turnos antigos dela duas vezes.
+  const candidata = { id: ignorarId || '__nova', devId: pessoaId, bucketInicio, duracaoBuckets: duracao, horasEstimadas: turnos.length * HORAS_TURNO, turnos };
   const v = useMemo(() => validarJanela(pessoa, alocacoes, buckets, candidata),
     [pessoa, alocacoes, buckets, turnos, bucketInicio, duracao]);
 
@@ -75,9 +82,9 @@ export function usePlanejamento({ pessoas, alocacoes, buckets, bucketAtual, hora
     setAncora(null);
     if (distribuicao === 'manual') {
       // Refaz a sugestão para a nova pessoa, a partir do mesmo início.
-      const sugestao = sugerirTurnos(p, alocacoes, buckets, bucketInicio, horas);
+      const sugestao = sugerirTurnos(p, alocacoes, buckets, Math.max(0, bucketInicio), horas, ignorarId);
       setManual(sugestao);
-      setJanela({ inicio: bucketInicio, duracao: duracaoDe(sugestao, bucketInicio) });
+      setJanela({ inicio: Math.max(0, bucketInicio), duracao: duracaoDe(sugestao, Math.max(0, bucketInicio)) });
     } else {
       setManual([]); // a seleção manual era da outra pessoa
     }
@@ -114,9 +121,10 @@ export function usePlanejamento({ pessoas, alocacoes, buckets, bucketAtual, hora
     setJanela((j) => ({ ...j, duracao: duracaoParaCaber(pessoa, buckets, j.inicio, horas, ocupados) }));
   }
 
-  const fimLabel = buckets[Math.min(n - 1, bucketInicio + duracao - 1)];
-  const janelaLabel = duracao === 1 ? buckets[bucketInicio].id
-    : buckets[bucketInicio].id + ' → ' + fimLabel.id + ' · ' + duracao + ' dias';
+  // Rótulo da janela, preso às bordas do período (uma remarcação pode começar antes dele).
+  const iniLabel = buckets[Math.max(0, Math.min(n - 1, bucketInicio))];
+  const fimLabel = buckets[Math.max(0, Math.min(n - 1, bucketInicio + duracao - 1))];
+  const janelaLabel = duracao === 1 ? iniLabel.id : iniLabel.id + ' → ' + fimLabel.id + ' · ' + duracao + ' dias';
 
   return {
     inicial, pessoa, pessoaId, escolherPessoa, horas, setHoras, distribuicao, mudarDistribuicao,

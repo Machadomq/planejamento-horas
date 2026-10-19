@@ -7,8 +7,8 @@ import { c } from './theme.js';
 import Pessoas from './screens/Pessoas.jsx';
 import Atividades from './screens/Atividades.jsx';
 import {
-  atualizarAtividade, atualizarPessoa, carregarTudo, criarAlocacao, criarAtividade, criarPessoa, excluirAtividade,
-  excluirPessoa,
+  atualizarAlocacao, atualizarAtividade, atualizarPessoa, carregarTudo, criarAlocacao, criarAtividade, criarPessoa,
+  excluirAlocacao, excluirAtividade, excluirPessoa,
 } from './data/api.js';
 import { alocacaoParaGantt, atividadeParaFila, pessoaParaGantt } from './data/adaptadores.js';
 import { bucketsParaDatas, periodoAtual, somarDias } from './lib/periodo.js';
@@ -29,6 +29,7 @@ export default function App() {
   const [fila, setFila] = useState(false);
   const [pendentes, setPendentes] = useState([]);
   const [orcamentosPendentes, setOrcamentosPendentes] = useState([]);
+  const [remarcando, setRemarcando] = useState(null); // alocação do Gantt aberta no modal
 
   async function carregar() {
     setCarregando(true);
@@ -117,6 +118,42 @@ export default function App() {
     }
   }
 
+  const trocarAlocacao = (salva) => setDados((d) => ({ ...d, alocacoes: d.alocacoes.map((a) => (a.id === salva.id ? salva : a)) }));
+
+  /**
+   * Edição rápida no Gantt (status, horas apontadas): a tela muda na hora e,
+   * se o banco recusar, volta ao valor anterior e o erro aparece na faixa.
+   */
+  async function atualizarNoGantt(id, campos) {
+    const antes = dados.alocacoes.find((a) => a.id === id);
+    trocarAlocacao({ ...antes, ...campos });
+    try {
+      trocarAlocacao(await atualizarAlocacao(id, campos, antes.versao));
+    } catch (e) {
+      trocarAlocacao(antes);
+      throw e;
+    }
+  }
+
+  /** Desplanejar: a alocação some e o ticket volta para a fila. */
+  async function excluirNoGantt(id) {
+    await excluirAlocacao(id);
+    setDados((d) => ({ ...d, alocacoes: d.alocacoes.filter((a) => a.id !== id) }));
+  }
+
+  /** Salva a remarcação feita no modal (turnos, horas, pessoa). Em erro, o modal continua aberto. */
+  async function salvarRemarcacao(payload) {
+    const antes = dados.alocacoes.find((a) => a.id === remarcando.id);
+    const salva = await atualizarAlocacao(antes.id, {
+      pessoaId: payload.devId || payload.poId,
+      ...bucketsParaDatas(payload.bucketInicio, payload.duracaoBuckets, periodo.inicio),
+      turnos: payload.turnos.map((t) => ({ data: somarDias(periodo.inicio, t.indice), periodo: t.periodo })),
+      distribuicao: payload.distribuicao,
+    }, antes.versao);
+    trocarAlocacao(salva);
+    setRemarcando(null);
+  }
+
   async function confirmar(payload) {
     await adicionarAlocacao(payload, 'execucao', payload.devId);
     setPendentes((p) => p.slice(1));
@@ -167,6 +204,9 @@ export default function App() {
           bucketAtual={periodo.bucketAtual}
           devs={visao.pessoas}
           alocacoes={visao.alocacoes}
+          onAtualizar={atualizarNoGantt}
+          onRemarcar={setRemarcando}
+          onExcluir={excluirNoGantt}
         />
       )}
 
@@ -222,6 +262,34 @@ export default function App() {
           alocacoesOrcamento={visao.alocacoes}
           onCancelar={() => setOrcamentosPendentes((p) => p.slice(1))}
           onConfirmar={confirmarOrcamento}
+        />
+      )}
+
+      {visao && remarcando && remarcando.tipoAlocacao === 'execucao' && (
+        <PlanejarDemanda
+          key={'remarcar-' + remarcando.id}
+          ticket={visao.tickets.find((t) => t.id === remarcando.atividadeId)}
+          devs={visao.devs}
+          buckets={periodo.buckets}
+          bucketAtual={periodo.bucketAtual}
+          alocacoes={visao.alocacoes}
+          existente={remarcando}
+          onCancelar={() => setRemarcando(null)}
+          onConfirmar={salvarRemarcacao}
+        />
+      )}
+
+      {visao && remarcando && remarcando.tipoAlocacao === 'orcamento' && (
+        <PlanejarOrcamento
+          key={'remarcar-' + remarcando.id}
+          ticket={visao.tickets.find((t) => t.id === remarcando.atividadeId)}
+          pos={visao.pos}
+          buckets={periodo.buckets}
+          bucketAtual={periodo.bucketAtual}
+          alocacoesOrcamento={visao.alocacoes}
+          existente={remarcando}
+          onCancelar={() => setRemarcando(null)}
+          onConfirmar={salvarRemarcacao}
         />
       )}
     </div>

@@ -190,8 +190,11 @@ export async function criarAlocacao(dados) {
  */
 export async function atualizarAlocacao(id, campos, versaoAtual) {
   const { turnos, ...resto } = campos;
+  let antes = null;
   let antigos = null;
   if (turnos) {
+    // Guarda o estado atual para desfazer se a troca de turnos falhar.
+    antes = await executar('carregar a alocação', (db) => db.from('alocacoes').select('*').eq('id', id).single());
     antigos = (await executar('carregar os turnos', (db) => db.from('alocacao_turnos').select('*').eq('alocacao_id', id))).map(turnoDoBanco);
     resto.horasEstimadas = turnos.length * HORAS_TURNO;
   }
@@ -203,12 +206,15 @@ export async function atualizarAlocacao(id, campos, versaoAtual) {
       })
       .eq('id', id).select().single());
   if (turnos) {
-    await executar('liberar os turnos antigos', (db) => db.from('alocacao_turnos').delete().eq('alocacao_id', id));
     try {
+      await executar('liberar os turnos antigos', (db) => db.from('alocacao_turnos').delete().eq('alocacao_id', id));
       await gravarTurnos(id, linha.pessoa_id, turnos);
     } catch (e) {
-      // Devolve os turnos antigos para não deixar a alocação sem turnos.
-      await gravarTurnos(id, antigos.length ? antigos[0].pessoaId : linha.pessoa_id, antigos).catch(() => {});
+      // Desfaz: cabeçalho como estava + turnos antigos (sem transação no navegador; ver TODO(Oracle)).
+      const { id: _id, ...cabecalhoAntigo } = antes;
+      await executar('desfazer a alteração', (db) => db.from('alocacoes').update(cabecalhoAntigo).eq('id', id)).catch(() => {});
+      await executar('desfazer a alteração', (db) => db.from('alocacao_turnos').delete().eq('alocacao_id', id)).catch(() => {});
+      await gravarTurnos(id, antes.pessoa_id, antigos).catch(() => {});
       throw e;
     }
   }

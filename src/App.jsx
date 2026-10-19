@@ -1,17 +1,19 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import GanttHoras from './screens/GanttHoras.jsx';
 import TicketsAPlanejar from './screens/TicketsAPlanejar.jsx';
 import PlanejarDemanda from './screens/PlanejarDemanda.jsx';
 import PlanejarOrcamento from './screens/PlanejarOrcamento.jsx';
 import { c } from './theme.js';
+import { Alerta, Botao, ConfirmacaoModal, Toast } from './components/ui.jsx';
 import Pessoas from './screens/Pessoas.jsx';
 import Atividades from './screens/Atividades.jsx';
 import {
   atualizarAlocacao, atualizarAtividade, atualizarPessoa, carregarTudo, criarAlocacao, criarAtividade, criarPessoa,
-  excluirAlocacao, excluirAtividade, excluirPessoa,
+  excluirAlocacao, excluirAtividade, excluirPessoa, limparTudo, restaurarExemplos,
 } from './data/api.js';
 import { alocacaoParaGantt, atividadeParaFila, pessoaParaGantt } from './data/adaptadores.js';
 import { bucketsParaDatas, periodoAtual, somarDias } from './lib/periodo.js';
+import { compararCodigos } from './lib/codigo.js';
 
 const ABAS = [
   { key: 'gantt', label: 'Gantt' },
@@ -30,6 +32,15 @@ export default function App() {
   const [pendentes, setPendentes] = useState([]);
   const [orcamentosPendentes, setOrcamentosPendentes] = useState([]);
   const [remarcando, setRemarcando] = useState(null); // alocação do Gantt aberta no modal
+  const [confirmando, setConfirmando] = useState(null); // 'limpar' | 'restaurar'
+  const [toast, setToast] = useState(null); // { tipo, texto }
+
+  // Avisos de sucesso somem sozinhos; os de erro ficam até o usuário fechar.
+  useEffect(() => {
+    if (!toast || toast.tipo !== 'ok') return undefined;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   async function carregar() {
     setCarregando(true);
@@ -59,6 +70,25 @@ export default function App() {
     };
   }, [dados, periodo]);
 
+  /** Fecha modais abertos e recarrega tudo do banco (usado depois de limpar/restaurar). */
+  async function recarregarDepois(acao, mensagem) {
+    await acao();
+    setFila(false); setPendentes([]); setOrcamentosPendentes([]); setRemarcando(null);
+    setDados(await carregarTudo());
+    setConfirmando(null);
+    setToast({ tipo: 'ok', texto: mensagem });
+  }
+
+  // Sem pessoa do tipo certo, o modal de planejamento não tem quem escolher: avisa em vez de abrir.
+  function planejar(sel) {
+    if (!visao.devs.length) { setToast({ tipo: 'erro', texto: 'Cadastre pelo menos um Dev na aba Pessoas antes de planejar demandas.' }); return; }
+    setPendentes(sel.map((t) => t.id)); setFila(false);
+  }
+  function planejarOrcamento(sel) {
+    if (!visao.pos.length) { setToast({ tipo: 'erro', texto: 'Cadastre pelo menos um PO na aba Pessoas antes de planejar pré-orçamentos.' }); return; }
+    setOrcamentosPendentes(sel.map((t) => t.id)); setFila(false);
+  }
+
   const alocacoesPorPessoa = useMemo(() => {
     const n = {};
     if (dados) dados.alocacoes.forEach((a) => { n[a.pessoaId] = (n[a.pessoaId] || 0) + 1; });
@@ -85,8 +115,9 @@ export default function App() {
     setDados((d) => ({
       ...d,
       atividades: (id ? d.atividades.map((a) => (a.id === id ? salva : a)) : d.atividades.concat(salva))
-        .sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR')),
+        .sort((a, b) => compararCodigos(a.codigo, b.codigo)),
     }));
+    return salva;
   }
 
   /** O banco apaga junto as alocações (ON DELETE CASCADE); a tela faz o mesmo. */
@@ -172,9 +203,12 @@ export default function App() {
             <div style={{ width: 30, height: 30, borderRadius: 7, background: c.teal, color: '#0B2223', fontSize: 14, fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>S</div>
             <div style={{ fontSize: 17, fontWeight: 'bold', color: c.white, letterSpacing: -0.2 }}>Alocação de horas · Demandas dos devs</div>
           </div>
-          {aba === 'gantt' && visao && (
-            <button type="button" onClick={() => setFila(true)} style={{ font: 'inherit', fontSize: 12, fontWeight: 'bold', color: '#0B2223', background: c.teal, border: 'none', borderRadius: 7, padding: '9px 14px', cursor: 'pointer' }}>Tickets a planejar</button>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {aba === 'gantt' && visao && visao.pessoas.length > 0 && (
+              <button type="button" onClick={() => setFila(true)} style={{ font: 'inherit', fontSize: 12, fontWeight: 'bold', color: '#0B2223', background: c.teal, border: 'none', borderRadius: 7, padding: '9px 14px', cursor: 'pointer' }}>Tickets a planejar</button>
+            )}
+            {visao && <MenuDados onLimpar={() => setConfirmando('limpar')} onRestaurar={() => setConfirmando('restaurar')} />}
+          </div>
         </div>
         <nav style={{ display: 'flex', gap: 4, marginTop: 10 }}>
           {ABAS.map((a) => {
@@ -198,7 +232,27 @@ export default function App() {
         </Aviso>
       )}
 
-      {visao && aba === 'gantt' && (
+      {visao && aba === 'gantt' && visao.pessoas.length === 0 && (
+        <EstadoVazio
+          titulo="O Gantt ainda está vazio"
+          texto="Cada pessoa do time vira uma linha do Gantt. Comece cadastrando os devs e POs; depois cadastre as atividades e planeje."
+          botao="Cadastre a primeira pessoa"
+          onClick={() => setAba('pessoas')}
+        />
+      )}
+
+      {visao && aba === 'gantt' && visao.pessoas.length > 0 && visao.alocacoes.length === 0 && (
+        <div style={{ padding: '18px 24px 0' }}>
+          <Alerta tipo="info">
+            Nenhuma atividade planejada ainda.{' '}
+            {visao.tickets.length
+              ? <>Clique em <strong>Tickets a planejar</strong> (no topo) para alocar as atividades nas pessoas.</>
+              : <>Cadastre as atividades na aba <strong>Atividades</strong> e depois clique em <strong>Tickets a planejar</strong>.</>}
+          </Alerta>
+        </div>
+      )}
+
+      {visao && aba === 'gantt' && visao.pessoas.length > 0 && (
         <GanttHoras
           buckets={periodo.buckets}
           bucketAtual={periodo.bucketAtual}
@@ -234,8 +288,8 @@ export default function App() {
         <TicketsAPlanejar
           tickets={visao.tickets}
           onFechar={() => setFila(false)}
-          onPlanejar={(sel) => { setPendentes(sel.map((t) => t.id)); setFila(false); }}
-          onPlanejarOrcamento={(sel) => { setOrcamentosPendentes(sel.map((t) => t.id)); setFila(false); }}
+          onPlanejar={planejar}
+          onPlanejarOrcamento={planejarOrcamento}
         />
       )}
 
@@ -292,6 +346,87 @@ export default function App() {
           onConfirmar={salvarRemarcacao}
         />
       )}
+
+      {confirmando === 'limpar' && (
+        <ConfirmacaoModal
+          titulo="Limpar tudo?"
+          palavra="LIMPAR"
+          rotuloBotao="Apagar todos os dados"
+          onCancelar={() => setConfirmando(null)}
+          onConfirmar={() => recarregarDepois(limparTudo, 'Tudo apagado. Comece cadastrando as pessoas na aba Pessoas.')}
+        >
+          Isso <strong>apaga do banco</strong> todas as {dados.pessoas.length} pessoas, {dados.atividades.length} atividades
+          e {dados.alocacoes.length} alocações. <strong>Não dá para desfazer.</strong>
+          <br />Use para começar do zero e cadastrar os dados reais.
+        </ConfirmacaoModal>
+      )}
+
+      {confirmando === 'restaurar' && (
+        <ConfirmacaoModal
+          titulo="Restaurar os dados de exemplo?"
+          rotuloBotao="Apagar e restaurar exemplos"
+          onCancelar={() => setConfirmando(null)}
+          onConfirmar={() => recarregarDepois(restaurarExemplos, 'Dados de exemplo restaurados, com datas a partir desta semana.')}
+        >
+          Isso <strong>apaga tudo que está no banco hoje</strong> ({dados.pessoas.length} pessoas, {dados.atividades.length} atividades,
+          {' '}{dados.alocacoes.length} alocações) e grava de novo os dados de exemplo da demo, com datas em volta de hoje.
+          <strong> Não dá para desfazer.</strong>
+        </ConfirmacaoModal>
+      )}
+
+      {toast && <Toast tipo={toast.tipo} onFechar={() => setToast(null)}>{toast.texto}</Toast>}
+    </div>
+  );
+}
+
+/** Menu "Dados" do cabeçalho: ações que apagam dados ficam escondidas aqui, longe de cliques acidentais. */
+function MenuDados({ onLimpar, onRestaurar }) {
+  const [aberto, setAberto] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!aberto) return undefined;
+    const fora = (e) => { if (ref.current && !ref.current.contains(e.target)) setAberto(false); };
+    const esc = (e) => { if (e.key === 'Escape') setAberto(false); };
+    document.addEventListener('mousedown', fora);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', fora); document.removeEventListener('keydown', esc); };
+  }, [aberto]);
+  const item = (rotulo, descricao, cor, onClick) => (
+    <button type="button" onClick={() => { setAberto(false); onClick(); }} style={{
+      font: 'inherit', display: 'block', width: '100%', textAlign: 'left', background: c.white, border: 'none',
+      borderTop: '1px solid ' + c.b3, padding: '11px 14px', cursor: 'pointer',
+    }}>
+      <span style={{ display: 'block', fontSize: 12.5, fontWeight: 'bold', color: cor }}>{rotulo}</span>
+      <span style={{ display: 'block', fontSize: 11, color: c.t4, marginTop: 2 }}>{descricao}</span>
+    </button>
+  );
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" onClick={() => setAberto((a) => !a)} aria-haspopup="menu" aria-expanded={aberto} style={{
+        font: 'inherit', fontSize: 12, fontWeight: 'bold', color: c.white, background: 'transparent',
+        border: '1px solid ' + c.inkBorder, borderRadius: 7, padding: '8px 12px', cursor: 'pointer',
+      }}>Dados ▾</button>
+      {aberto && (
+        <div role="menu" style={{
+          position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: 280, zIndex: 50, overflow: 'hidden',
+          background: c.white, border: '1px solid ' + c.b1, borderRadius: 10, boxShadow: '0 16px 32px rgba(12,16,20,0.22)',
+        }}>
+          {item('Restaurar exemplos', 'Apaga tudo e grava os dados de exemplo da demo.', c.t1, onRestaurar)}
+          {item('Limpar tudo', 'Apaga todos os dados para começar do zero.', c.redText, onLimpar)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EstadoVazio({ titulo, texto, botao, onClick }) {
+  return (
+    <div style={{ padding: '18px 24px' }}>
+      <div style={{ background: c.white, border: '1px solid ' + c.b1, borderRadius: 12, padding: '56px 24px', textAlign: 'center' }}>
+        <div style={{ fontSize: 16, fontWeight: 'bold', color: c.t2 }}>{titulo}</div>
+        <div style={{ fontSize: 13, color: c.t4, margin: '8px auto 20px', maxWidth: 460, lineHeight: 1.5 }}>{texto}</div>
+        <Botao onClick={onClick}>{botao}</Botao>
+      </div>
     </div>
   );
 }

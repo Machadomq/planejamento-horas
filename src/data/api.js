@@ -26,6 +26,7 @@ import {
   alocacaoDoBanco, alocacaoParaBanco, turnoDoBanco, turnoParaBanco,
 } from './mapeamento.js';
 import { novoId } from '../lib/ids.js';
+import { compararCodigos, proximoCodigo } from '../lib/codigo.js';
 import { gerarExemplos } from './seed.js';
 
 function erroAmigavel(error, acao) {
@@ -110,18 +111,31 @@ export async function excluirPessoa(id) {
 
 export async function listarAtividades() {
   const linhas = await listarTudo('carregar as atividades', 'atividades', 'codigo');
-  return linhas.map(atividadeDoBanco);
+  return linhas.map(atividadeDoBanco).sort((a, b) => compararCodigos(a.codigo, b.codigo));
 }
 
+/**
+ * O código é gerado aqui: maior número já usado + 1. Se outra gravação pegar o mesmo
+ * número no meio do caminho (UNIQUE no banco), tenta de novo com o seguinte.
+ * TODO(Oracle): usar uma SEQUENCE do banco para gerar o número.
+ */
 export async function criarAtividade(dados) {
-  const linha = await executar('salvar a atividade', (db) =>
-    db.from('atividades').insert(atividadeParaBanco({ ...dados, id: novoId() })).select().single());
-  return atividadeDoBanco(linha);
+  for (let tentativa = 0; ; tentativa++) {
+    const codigos = (await listarTudo('gerar o código da atividade', 'atividades', 'id')).map((l) => l.codigo);
+    try {
+      const linha = await executar('salvar a atividade', (db) =>
+        db.from('atividades').insert(atividadeParaBanco({ ...dados, id: novoId(), codigo: proximoCodigo(codigos) })).select().single());
+      return atividadeDoBanco(linha);
+    } catch (e) {
+      if (e.codigo !== 'duplicado' || tentativa >= 2) throw e;
+    }
+  }
 }
 
+/** O código não muda depois de criado. */
 export async function atualizarAtividade(id, campos) {
   const linha = await executar('atualizar a atividade', (db) =>
-    db.from('atividades').update(atividadeParaBanco({ ...campos, id: undefined })).eq('id', id).select().single());
+    db.from('atividades').update(atividadeParaBanco({ ...campos, id: undefined, codigo: undefined })).eq('id', id).select().single());
   return atividadeDoBanco(linha);
 }
 

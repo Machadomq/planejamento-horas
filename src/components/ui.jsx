@@ -175,6 +175,61 @@ export function Alerta({ tipo = 'erro', children, onFechar }) {
   );
 }
 
+/**
+ * Confirmação de ação perigosa. Com `palavra`, o botão só libera depois de digitá-la.
+ * onConfirmar devolve Promise; em erro, a mensagem aparece e a janela continua aberta.
+ */
+export function ConfirmacaoModal({ titulo, children, palavra, rotuloBotao, perigo = true, onConfirmar, onCancelar }) {
+  const [digitado, setDigitado] = useState('');
+  const [ocupado, setOcupado] = useState(false);
+  const [erro, setErro] = useState(null);
+  const liberado = !palavra || digitado.trim().toUpperCase() === palavra;
+
+  async function confirmar() {
+    setOcupado(true);
+    setErro(null);
+    try {
+      await onConfirmar();
+    } catch (e) {
+      setErro(e.message);
+      setOcupado(false);
+    }
+  }
+
+  return (
+    <Modal largura={480}>
+      <div style={{ padding: '20px 22px 0' }}>
+        <div style={{ fontSize: 16, fontWeight: 'bold', color: perigo ? c.redText : c.t1 }}>{titulo}</div>
+        <div style={{ fontSize: 13, color: c.t2, lineHeight: 1.55, marginTop: 10 }}>{children}</div>
+        {palavra && (
+          <label style={{ display: 'block', marginTop: 14 }}>
+            <span style={{ display: 'block', fontSize: 12, color: c.t3, marginBottom: 6 }}>Para confirmar, digite <strong>{palavra}</strong>:</span>
+            <input autoFocus value={digitado} onChange={(e) => setDigitado(e.target.value)} style={estiloInput}
+              onKeyDown={(e) => { if (e.key === 'Enter' && liberado && !ocupado) confirmar(); }} />
+          </label>
+        )}
+        {erro && <div style={{ marginTop: 12 }}><Alerta>{erro}</Alerta></div>}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '18px 22px 20px' }}>
+        <Botao variante="texto" onClick={onCancelar} disabled={ocupado}>Cancelar</Botao>
+        <Botao onClick={confirmar} disabled={!liberado || ocupado}
+          style={perigo ? { color: c.white, background: c.red, border: '1px solid ' + c.red } : undefined}>
+          {ocupado ? 'Aguarde…' : rotuloBotao}
+        </Botao>
+      </div>
+    </Modal>
+  );
+}
+
+/** Aviso flutuante no topo da tela. tipo: 'ok' | 'erro'. */
+export function Toast({ tipo = 'ok', children, onFechar }) {
+  return (
+    <div style={{ position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 60, width: 'min(560px, calc(100% - 32px))', boxShadow: '0 12px 28px rgba(12,16,20,0.22)', borderRadius: 9 }}>
+      <Alerta tipo={tipo} onFechar={onFechar}>{children}</Alerta>
+    </div>
+  );
+}
+
 export function Modal({ largura, children }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(18,22,26,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, zIndex: 40 }}>

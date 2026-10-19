@@ -3,21 +3,16 @@ import { c, label, PRIORIDADE_COR } from '../theme.js';
 import { Alerta, Botao, Campo, Chip, Modal, estiloInput } from '../components/ui.jsx';
 import { brl, centavosParaTexto, dataBR, textoParaCentavos } from '../lib/formato.js';
 import { diasEntre } from '../lib/periodo.js';
+import { proximoCodigo, rotuloCodigo } from '../lib/codigo.js';
 import { PRIORIDADES, STATUS_ORCAMENTO, TIPOS_ATIVIDADE } from '../data/catalogos.js';
 
-const GRID = '96px minmax(0, 2.2fr) minmax(0, 1.3fr) 70px 104px minmax(0, 1.5fr) 150px';
+const GRID = '96px minmax(0, 2.2fr) minmax(0, 1.3fr) 112px 104px minmax(0, 1.5fr) 150px';
 
 const FILTROS = [
   { key: '', label: 'Todas' },
   { key: 'aprovado', label: 'Orçamento aprovado' },
   { key: 'pre_orcamento', label: 'Pré-orçamento' },
 ];
-
-/** Sugere o próximo código no padrão TCK-NNNN. */
-function proximoCodigo(atividades) {
-  const nums = atividades.map((a) => /^TCK-(\d+)$/i.exec(a.codigo)).filter(Boolean).map((m) => Number(m[1]));
-  return nums.length ? 'TCK-' + (Math.max(...nums) + 1) : '';
-}
 
 /**
  * Cadastro de atividades (tickets).
@@ -56,14 +51,15 @@ export default function Atividades({ atividades, alocacoes, pessoas, hoje, onSal
   async function excluir(a) {
     setErro(null); setAviso(null);
     const n = (alocacoesDe[a.id] || []).length;
+    const cod = rotuloCodigo(a.codigo);
     const msg = n
-      ? a.codigo + ' está planejada no Gantt. Excluir a atividade apaga também ' + (n > 1 ? 'as ' + n + ' alocações dela' : 'a alocação dela') + '. Continuar?'
-      : 'Excluir ' + a.codigo + ' · ' + a.titulo + '? Essa ação não pode ser desfeita.';
+      ? cod + ' está planejada no Gantt. Excluir a atividade apaga também ' + (n > 1 ? 'as ' + n + ' alocações dela' : 'a alocação dela') + '. Continuar?'
+      : 'Excluir ' + cod + ' · ' + a.titulo + '? Essa ação não pode ser desfeita.';
     if (!window.confirm(msg)) return;
     setExcluindo(a.id);
     try {
       await onExcluir(a.id);
-      setAviso(a.codigo + ' excluída' + (n ? ' (e removida do Gantt).' : '.'));
+      setAviso(cod + ' excluída' + (n ? ' (e removida do Gantt).' : '.'));
     } catch (e) {
       setErro(e.message);
     } finally {
@@ -111,7 +107,7 @@ export default function Atividades({ atividades, alocacoes, pessoas, hoje, onSal
               <div style={label}>Código</div>
               <div style={label}>Título</div>
               <div style={label}>Solicitante</div>
-              <div style={{ ...label, textAlign: 'right' }}>Horas</div>
+              <div style={{ ...label, textAlign: 'right' }} title="Horas aprovadas no orçamento / horas planejadas no Gantt">Aprov. / Plan.</div>
               <div style={{ ...label, textAlign: 'right' }}>Prazo</div>
               <div style={{ ...label, paddingLeft: 16 }}>Situação</div>
               <div />
@@ -121,7 +117,7 @@ export default function Atividades({ atividades, alocacoes, pessoas, hoje, onSal
               const dias = a.prazo ? diasEntre(hoje, a.prazo) : null;
               return (
                 <div key={a.id} style={{ display: 'grid', gridTemplateColumns: GRID, alignItems: 'center', padding: '10px 18px', borderBottom: '1px solid ' + c.b3 }}>
-                  <div style={{ fontSize: 12, fontWeight: 'bold', color: c.tealDark }}>{a.codigo}</div>
+                  <div style={{ fontSize: 12, fontWeight: 'bold', color: c.tealDark }}>{rotuloCodigo(a.codigo)}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, paddingRight: 12 }}>
                     <div title={'Prioridade ' + a.prioridade} style={{ width: 3, height: 28, borderRadius: 2, background: PRIORIDADE_COR[a.prioridade] || c.b4, flex: 'none' }} />
                     <div style={{ minWidth: 0 }}>
@@ -137,7 +133,7 @@ export default function Atividades({ atividades, alocacoes, pessoas, hoje, onSal
                     <div style={{ fontSize: 12, color: c.t2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.solicitante || '—'}</div>
                     <div style={{ fontSize: 10.5, color: c.t5, marginTop: 3 }}>{a.area}</div>
                   </div>
-                  <div style={{ fontSize: 12.5, fontWeight: 'bold', textAlign: 'right' }}>{a.horasAprovadas} h</div>
+                  <HorasAtividade atividade={a} alocacoes={alocacoesDe[a.id] || []} />
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: 12, color: c.t2 }}>{a.prazo ? dataBR(a.prazo) : '—'}</div>
                     {dias !== null && (
@@ -167,12 +163,12 @@ export default function Atividades({ atividades, alocacoes, pessoas, hoje, onSal
         <FormAtividade
           atividade={editando.id ? editando : null}
           atividades={atividades}
-          planejada={Boolean(editando.id && (alocacoesDe[editando.id] || []).some((x) => x.tipo === 'execucao'))}
+          horasPlanejadas={((editando.id && alocacoesDe[editando.id]) || []).filter((x) => x.tipo === 'execucao').map((x) => x.horasEstimadas)[0] ?? null}
           hoje={hoje}
           onCancelar={() => setEditando(null)}
           onSalvar={async (dados) => {
-            await onSalvar(dados, editando.id);
-            setAviso(dados.codigo + (editando.id ? ' atualizada.' : ' cadastrada.'));
+            const salva = await onSalvar(dados, editando.id);
+            setAviso('Atividade ' + rotuloCodigo(salva.codigo) + (editando.id ? ' atualizada.' : ' cadastrada.'));
             setEditando(null);
           }}
         />
@@ -181,9 +177,40 @@ export default function Atividades({ atividades, alocacoes, pessoas, hoje, onSal
   );
 }
 
-function FormAtividade({ atividade, atividades, planejada, hoje, onCancelar, onSalvar }) {
+/**
+ * Horas aprovadas (orçamento, guardadas na atividade) e, abaixo, as planejadas no Gantt
+ * (soma dos turnos da alocação). Diferença fica em destaque; o orçamento original não muda.
+ */
+function HorasAtividade({ atividade, alocacoes }) {
+  const exec = alocacoes.find((x) => x.tipo === 'execucao');
+  const orc = alocacoes.find((x) => x.tipo === 'orcamento');
+  const aprovadas = atividade.horasAprovadas;
+  let linha2 = null;
+  if (exec) {
+    const dif = exec.horasEstimadas - aprovadas;
+    const cor = dif === 0 ? c.t5 : c.amberText;
+    linha2 = (
+      <div style={{ fontSize: 10.5, marginTop: 3, color: cor, fontWeight: dif ? 'bold' : 'normal' }}
+        title={dif ? 'Planejado no Gantt ' + (dif > 0 ? 'acima' : 'abaixo') + ' das horas aprovadas' : 'Planejado igual ao aprovado'}>
+        plan. {exec.horasEstimadas} h{dif ? ' (' + (dif > 0 ? '+' : '') + dif + ')' : ''}
+      </div>
+    );
+  } else if (orc) {
+    linha2 = <div style={{ fontSize: 10.5, marginTop: 3, color: c.amberText }} title="Horas agendadas para o PO elaborar o pré-orçamento">PO: {orc.horasEstimadas} h</div>;
+  }
+  return (
+    <div style={{ textAlign: 'right' }}>
+      <div style={{ fontSize: 12.5, fontWeight: 'bold' }}>{aprovadas} h</div>
+      {linha2}
+    </div>
+  );
+}
+
+function FormAtividade({ atividade, atividades, horasPlanejadas, hoje, onCancelar, onSalvar }) {
+  const planejada = horasPlanejadas !== null;
   const a = atividade || {};
-  const [codigo, setCodigo] = useState(a.codigo || proximoCodigo(atividades));
+  // Código: gerado automaticamente ao salvar (aqui só a prévia do próximo número); não é editável.
+  const codigoExibido = atividade ? rotuloCodigo(a.codigo) : rotuloCodigo(proximoCodigo(atividades.map((x) => x.codigo)));
   const [titulo, setTitulo] = useState(a.titulo || '');
   const [tipo, setTipo] = useState(a.tipo || TIPOS_ATIVIDADE[0]);
   const [prioridade, setPrioridade] = useState(a.prioridade || 'Média');
@@ -201,11 +228,7 @@ function FormAtividade({ atividade, atividades, planejada, hoje, onCancelar, onS
   const aprovado = statusOrcamento === 'aprovado';
   const horasNum = horas.trim() === '' ? 0 : Number(horas.replace(',', '.'));
   const valorCent = aprovado ? textoParaCentavos(valor) : null;
-  const codigoLimpo = codigo.trim().toUpperCase();
-  const duplicado = atividades.some((x) => x.id !== a.id && x.codigo.toUpperCase() === codigoLimpo);
-
   const erros = {
-    codigo: !codigoLimpo ? 'Informe o código.' : duplicado ? 'Já existe uma atividade com esse código.' : null,
     titulo: !titulo.trim() ? 'Informe o título.' : null,
     horas: !Number.isFinite(horasNum) || horasNum < 0 ? 'Use um número de horas válido.'
       : aprovado && horasNum <= 0 ? 'Informe as horas aprovadas.' : null,
@@ -220,7 +243,7 @@ function FormAtividade({ atividade, atividades, planejada, hoje, onCancelar, onS
     setErro(null);
     try {
       await onSalvar({
-        codigo: codigoLimpo, titulo: titulo.trim(), tipo, prioridade, statusOrcamento,
+        titulo: titulo.trim(), tipo, prioridade, statusOrcamento,
         solicitante: solicitante.trim(), area: area.trim(), horasAprovadas: horasNum,
         valorAprovadoCentavos: aprovado ? valorCent : null,
         dataAprovacao: aprovado ? dataAprovacao || null : null,
@@ -246,8 +269,8 @@ function FormAtividade({ atividade, atividades, planejada, hoje, onCancelar, onS
         {erro && <Alerta>{erro}</Alerta>}
 
         <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: 12 }}>
-          <Campo rotulo="Código" obrigatorio erro={tentou && erros.codigo}>
-            <input style={{ ...estiloInput, textTransform: 'uppercase' }} value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="TCK-4312" maxLength={20} />
+          <Campo rotulo="Código" ajuda={atividade ? 'Não muda.' : 'Gerado ao salvar.'}>
+            <div style={{ ...estiloInput, background: c.s2, color: c.tealDark, fontWeight: 'bold' }} title="Número sequencial gerado automaticamente">{codigoExibido}</div>
           </Campo>
           <Campo rotulo="Título" obrigatorio erro={tentou && erros.titulo}>
             <input autoFocus style={estiloInput} value={titulo} onChange={(e) => setTitulo(e.target.value)} maxLength={200} />
@@ -295,7 +318,8 @@ function FormAtividade({ atividade, atividades, planejada, hoje, onCancelar, onS
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <Campo rotulo={aprovado ? 'Horas aprovadas' : 'Horas estimadas'} obrigatorio={aprovado} erro={tentou && erros.horas}
-            ajuda={aprovado ? null : 'Opcional: uma primeira estimativa.'}>
+            ajuda={planejada ? 'Planejado no Gantt: ' + horasPlanejadas + ' h (muda só pela remarcação no Gantt).'
+              : aprovado ? null : 'Opcional: uma primeira estimativa.'}>
             <input style={estiloInput} inputMode="decimal" value={horas} onChange={(e) => setHoras(e.target.value)} placeholder="Ex.: 48" />
           </Campo>
           {aprovado && (

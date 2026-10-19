@@ -2,6 +2,7 @@
 // que as telas e lib/capacidade.js já usavam (índices de coluna do Gantt).
 import { datasParaBuckets, diasEntre } from '../lib/periodo.js';
 import { HORAS_TURNO, periodosDaJornada, turnosDisponiveis } from '../lib/turnos.js';
+import { rotuloCodigo } from '../lib/codigo.js';
 
 /** Pessoa → linha do Gantt, com a capacidade de cada dia (4 h por turno da jornada; 0 no fim de semana). */
 export function pessoaParaGantt(p, periodo) {
@@ -19,7 +20,7 @@ export function alocacaoParaGantt(a, atividadesPorId, periodo) {
     id: a.id,
     atividadeId: a.atividadeId,
     tipoAlocacao: a.tipo,
-    ticketId: at.codigo,
+    ticketId: rotuloCodigo(at.codigo),
     titulo: at.titulo,
     tipo: at.tipo,
     prioridade: at.prioridade,
@@ -40,7 +41,7 @@ export function atividadeParaFila(at, alocacoes, hoje) {
   const orc = alocacoes.find((a) => a.atividadeId === at.id && a.tipo === 'orcamento');
   return {
     id: at.id,
-    codigo: at.codigo,
+    codigo: rotuloCodigo(at.codigo),
     titulo: at.titulo,
     tipo: at.tipo,
     prioridade: at.prioridade,

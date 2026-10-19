@@ -98,5 +98,12 @@ export function gerarExemplos(hoje = hojeISO()) {
       });
     });
 
+  // Códigos sequenciais 1, 2, 3… pela data de aprovação (pré-orçamentos, sem data, por último),
+  // no mesmo padrão das atividades cadastradas na plataforma.
+  atividades
+    .slice()
+    .sort((x, y) => (x.dataAprovacao || '9999').localeCompare(y.dataAprovacao || '9999') || x.codigo.localeCompare(y.codigo))
+    .forEach((at, i) => { at.codigo = String(i + 1); });
+
   return { pessoas, atividades, alocacoes };
 }
